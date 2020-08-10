@@ -1,0 +1,45 @@
+Future upgrades to iXAtom analysis
+
+(1) Copy auxiliary run parameters to a file in each 'Post-Processed/Run' folder to easily recall later
+(2) Related to (1): separate software dependencies on raw and post-processed data so that one requires only the post-processed data folder to run analysis levels 2 and above.
+(3) Related to (1): Merge raw and post-processed data frames (as in ICE analysis)
+(4) Write individual entry point files for Raman, Ramsey, etc. to help store settings from one day to another
+(X) Create a Rabi class and write associated analysis
+(6) Merge sequence timing extraction from Tracking and RunParameters classes
+(7) Add functionality to overlap Allan deviations from different Tracking runs (i.e. store Tracking summaries)
+(8) Add functionality to overlap data from a series of Raman and Tracking runs
+(9) Add override for iaxList to analyze only one axis if requested
+(10) Upgrade monitor correlation for LabVIEW Software v3.3
+
+Present code structure:
+
+- Class RunParameters (calls Physics)
+	- Subclass: Detection (calls Utilities)
+	- Subclass: Monitor (calls Utilities)
+	- Subclass: Raman (calls Detection, Physics, Utilities)
+	- Subclass: Ramsey (calls Detection, Physics, Utilities)
+	- Subclass: Rabi (calls Detection, Physics, Utilities)
+	- Subclass: Track (calls Physics, Utilities)
+- Class Stream (calls Utilities)
+- Class Physics (requires instance of RunParameters)
+	- Subclass: Systematics (requires instance of RunParameters)
+- Utilities (stores custom plotting methods, reading/writing methods, and analysis methods
+	for use in all classes)
+
+Improved code structure:
+
+- Class Data (stores general attributes and methods for all possible data types,
+	e.g. file paths, sequence timing, reading/writing methods, etc.)
+	- Subclass: RunParameters (stores run parameter attributes)
+	- Subclass: Detection (stores raw detection data and methods)
+	- Subclass: Monitor (stores monitor data and methods)
+	- Subclass: Raman
+	- Subclass: Ramsey
+	- Subclass: Rabi
+	- Subclass: Track
+	- Subclass: Stream
+- Class Physics (stores physical constants and functions, requires instance of RunParameters)
+	- Subclass: Systematics (requires instance of RunParameters)
+- Class Analysis (stores custom analysis methods for use in all classes,
+	e.g. fit models, moving averages, PSDs, allan deviations, time series analysis, etc.)
+- Class Plotting (stores custom plotting methods for use in all classes)
