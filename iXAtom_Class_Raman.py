@@ -444,10 +444,17 @@ class Raman(iXC_RunPars.RunParameters):
 			gExp.init_value	= 2*np.pi*abs(alpha0_init)/self.keff
 			gExp.stderr	    = 2*np.pi*dalpha0/self.keff
 		else:
-			phi0            = ResultLS.params['xOffset']
-			gExp            = lm.Parameter('gExp', value=0.)
-			gExp.init_value	= 0.
-			gExp.stderr	    = 0.
+			phig            = self.Seff[iax]*self.gLocal
+			n2pi            = np.floor(phig/(2.*np.pi))
+			phi0_best		= ResultLS.params['xOffset'].value % (self.kSign[iax][ik]*2.*np.pi) + self.kSign[iax][ik]*n2pi*(2.*np.pi)
+			phi0            = lm.Parameter('phi0', value=phi0_best)
+			phi0.init_value = ResultLS.params['xOffset'].init_value
+			phi0.stderr     = ResultLS.params['xOffset'].stderr
+
+			gExp_best       = phi0_best/(self.kSign[iax][ik]*self.Seff[iax])
+			gExp            = lm.Parameter('gExp', value=gExp_best)
+			gExp.init_value	= (phi0.init_value % (self.kSign[iax][ik]*2.*np.pi) + self.kSign[iax][ik]*n2pi*(2.*np.pi))/(self.kSign[iax][ik]*self.Seff[iax])
+			gExp.stderr	    = phi0.stderr/self.Seff[iax]
 
 		sigX = lm.Parameter('sigX', value=np.exp(ResultML.params['log_sigX']))
 		sigX.init_value = np.exp(ResultML.params['log_sigX'].init_value)
@@ -1123,36 +1130,9 @@ def RamanAnalysisLevel3(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 	ikSet     = set()
 
 	SummaryDF = [[pd.DataFrame(columns=[
-		'Run', 'RunTime', RamanOpts['RunPlotVariable'],'xOffset', 'xOffset_Err', 'yOffset', 'yOffset_Err',
+		'Run', 'RunTime', RamanOpts['RunPlotVariable'], 'Seff', 'xOffset', 'xOffset_Err', 'yOffset', 'yOffset_Err',
 		'Contrast', 'Contrast_Err', 'xScale', 'xScale_Err', 'SNR', 'SNR_Err', 'sigX', 'sigY', 'phi0', 'phi0_Err',
 		'gExp', 'gExp_Err']) for ik in range(2)] for iax in range(3)]
-
-	# nRun    = np.empty((3,nRuns), dtype=object) ## [iax,iRun]
-	# tRun    = np.empty((3,nRuns), dtype=object) ## [iax,iRun]
-	# x       = np.empty_like(tRun)
-	# Teff    = np.empty_like(tRun)
-	# x0      = np.empty((3,2,2,nRuns), dtype=object) ## [iax,ik,iErr,iRun] (iErr = 0:Best, 1:Error)
-	# y0      = np.empty_like(x0)
-	# c       = np.empty_like(x0)
-	# s       = np.empty_like(x0)
-	# SNR     = np.empty_like(x0)
-	# gExp    = np.empty_like(x0)
-	# phi0    = np.empty_like(x0)
-	# sigX    = np.empty((3,2,nRuns), dtype=object) ## [iax,ik,iRun]
-	# sigY    = np.empty_like(sigX)
-
-	# tRun = np.zeros(nRuns)
-	# x    = np.zeros(nRuns)
-	# Teff = np.zeros((3,nRuns)) 		## [iax,iRun]
-	# y0   = np.zeros((3,2,2,nRuns)) 	## [iax,ik,(0,1=Best,Error),iRun]
-	# x0   = np.zeros((3,2,2,nRuns))
-	# c    = np.zeros((3,2,2,nRuns))
-	# s    = np.zeros((3,2,2,nRuns))
-	# SNR  = np.zeros((3,2,2,nRuns))
-	# gExp = np.zeros((3,2,2,nRuns))
-	# phi0 = np.zeros((3,2,2,nRuns))
-	# sigX = np.zeros((3,2,nRuns)) ## [iax,ik,iRun]
-	# sigY = np.zeros((3,2,nRuns)) ## [iax,ik,iRun]
 
 	SummaryDF = [[pd.DataFrame([]) for ik in range(2)] for iax in range(3)]
 
@@ -1186,12 +1166,14 @@ def RamanAnalysisLevel3(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 		for iax in Ram.iaxList:
 			for ik in Ram.ikList:
 				d = {'Run': iRun, 'RunTime': Ram.RunTime, RamanOpts['RunPlotVariable']: getattr(Ram, RamanOpts['RunPlotVariable']),
+					'Seff': Ram.kSign[iax][ik]*Ram.Seff[iax],
 					'xOffset': fitList[iax][ik]['Best']['xOffset'], 'xOffset_Err': fitList[iax][ik]['Error']['xOffset'],
 					'yOffset': fitList[iax][ik]['Best']['yOffset'], 'yOffset_Err': fitList[iax][ik]['Error']['yOffset'],
 					'Contrast': fitList[iax][ik]['Best']['Contrast'], 'Contrast_Err': fitList[iax][ik]['Error']['Contrast'],
 					'xScale': fitList[iax][ik]['Best']['xScale'], 'xScale_Err': fitList[iax][ik]['Error']['xScale'],
 					'SNR': fitList[iax][ik]['Best']['SNR'], 'SNR_Err': fitList[iax][ik]['Error']['SNR'],
-					'sigX': fitList[iax][ik]['Best']['sigX'], 'sigY': fitList[iax][ik]['Best']['sigY'], 'sigC': fitList[iax][ik]['Best']['sigC'],
+					'sigX': fitList[iax][ik]['Best']['sigX'], 'sigY': fitList[iax][ik]['Best']['sigY'],
+					'sigC': fitList[iax][ik]['Best']['sigC'],
 					'phi0': fitList[iax][ik]['Best']['phi0'], 'phi0_Err': fitList[iax][ik]['Error']['phi0'],
 					'gExp': fitList[iax][ik]['Best']['gExp'], 'gExp_Err': fitList[iax][ik]['Error']['gExp']}
 				SummaryDF[iax][ik] = SummaryDF[iax][ik].append(d, ignore_index=True)
@@ -1218,6 +1200,10 @@ def RamanAnalysisLevel3(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 			## Special operations for RamanpiX, RamanpiY, RamanpiZ
 			xScale = 1.0E6
 			xLabel = r'$\tau_{\pi}$  ($\mu$s)'
+		elif RamanOpts['RunPlotVariable'] == 'RamanPower':
+			## Special operations for RamanPower
+			xScale = 1.
+			xLabel = r'$P_{\rm Raman}$  (V)'
 		elif RamanOpts['RunPlotVariable'] == 'RunTime':
 			t0     = SummaryDF[list(iaxSet)[0]][list(ikSet)[0]]['RunTime'].iloc[0]
 			dt0    = dt.datetime.fromtimestamp(t0, tz=pytz.timezone('Europe/Paris'))
@@ -1233,6 +1219,7 @@ def RamanAnalysisLevel3(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 					x   = SummaryDF[iax][ik][RamanOpts['RunPlotVariable']].to_numpy()*xScale
 					if RamanOpts['RunPlotVariable'] == 'RunTime':
 						x -= t0*xScale
+					Seff  = SummaryDF[iax][ik]['Seff'].to_numpy()
 					x0    = SummaryDF[iax][ik]['xOffset'].to_numpy()
 					dx0   = SummaryDF[iax][ik]['xOffset_Err'].to_numpy()
 					y0    = SummaryDF[iax][ik]['yOffset'].to_numpy()
@@ -1244,6 +1231,8 @@ def RamanAnalysisLevel3(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 					sigX  = SummaryDF[iax][ik]['sigX'].to_numpy()
 					sigY  = SummaryDF[iax][ik]['sigY'].to_numpy()
 					sigC  = SummaryDF[iax][ik]['sigC'].to_numpy()
+					phi0  = SummaryDF[iax][ik]['phi0'].to_numpy()
+					dphi0 = SummaryDF[iax][ik]['phi0_Err'].to_numpy()
 					gExp  = SummaryDF[iax][ik]['gExp'].to_numpy()
 					dgExp = SummaryDF[iax][ik]['gExp_Err'].to_numpy()
 
@@ -1276,15 +1265,13 @@ def RamanAnalysisLevel3(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 							customPlotOpts['Color']    = Ram.DefaultPlotColors[iax][ik]
 							customPlotOpts['LegLabel'] = Ram.AxisLegLabels[iax][ik]
 						elif not chirpsInterlaced:
-							phi0  = SummaryDF[iax][ik]['phi0'].to_numpy()
-							dphi0 = SummaryDF[iax][ik]['phi0_Err'].to_numpy()
 							iXUtils.CustomPlot(axs[0][2], customPlotOpts, x, phi0, yErr=dphi0)
 
 						customPlotOpts['Title']  = 'None'
 					else:
 						## Assumes all data are not chirped
-						customPlotOpts['yLabel'] = r'$\phi_0$  (rad)'
-						iXUtils.CustomPlot(axs[0][2], customPlotOpts, x, x0, yErr=dx0)
+						customPlotOpts['yLabel'] = r'$\phi_0 - S_{\rm eff} g$  (rad)'
+						iXUtils.CustomPlot(axs[0][2], customPlotOpts, x, phi0 - Seff*Ram.gLocal, yErr=dphi0)
 
 					if nRows == 2:
 						customPlotOpts['xLabel'] = xLabel

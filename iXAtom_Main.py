@@ -142,8 +142,9 @@ import iXAtom_Class_Monitor       as iXC_Monitor
 ##-------------------------------------------------------------------
 
 PathCtrl = {
-	'RootDir':				'C:\\Bryns Goodies\\Work-iXAtom', 				## Root directory containing data
-	'DataDate':				{'Day': 2, 'Month': 'July', 'Year': 2020},	## Date the data was recorded
+	# 'RootDir':				'C:\\Bryns Goodies\\Work-iXAtom', 				## Root directory containing data
+	'RootDir':				'C:\\iXAtom Desktop', 				## Root directory containing data
+	'DataDate':				{'Day': 10, 'Month': 'August', 'Year': 2020},	## Date the data was recorded
 }
 
 workDir = os.path.join(PathCtrl['RootDir'], 'Data {}'.format(PathCtrl['DataDate']['Year']),
@@ -153,17 +154,30 @@ AnalysisCtrl = {
 	'AnalysisLevels':		[2,3],			## List of primary data analysis control types
 	'ProcessLevel': 		0,				## Secondary control of data analysis processing
 	'WorkDir': 				workDir, 		## Working directory
-	'Folder': 		 		'Ramsey', 		## Data folder within WorkDir (e.g. 'Raman', 'Ramsey', 'Rabi', 'Tracking', 'Streaming')
+	'Folder': 		 		'Raman', 		## Data folder within WorkDir (e.g. 'Raman', 'Ramsey', 'Rabi', 'Tracking', 'Streaming')
 	'SubFolder':			'None', 		## Subfolder within Folder (Folder = 'Streaming' only, SubFolder ignored if 'None')
-	# 'RunList':				[1],			## List of run numbers of loop over
-	# 'RunList':				list(range(1,7+1)),	## List of run numbers of loop over
+	# 'RunList':				[1,2,3],			## List of run numbers of loop over
+	# 'RunList':				list(range(1,11+1)),	## List of run numbers of loop over
+	# 'RunList':				list(range(12,19+1)),	## List of run numbers of loop over
+	# 'RunList':				list(range(20,27+1)),	## List of run numbers of loop over
+	# 'RunList':				list(range(28,35+1)),	## List of run numbers of loop over
+	# 'RunList':				list(range(36,43+1)),	## List of run numbers of loop over
+	# 'RunList':				list(range(44,51+1)),	## List of run numbers of loop over
+	# 'RunList':				list(range(52,59+1)),	## List of run numbers of loop over
+	# 'RunList':				list(range(60,67+1)),	## List of run numbers of loop over
+
+	# 'RunList':				[19,27,35,43,51,59,67],		## List of run numbers of loop over
+	'RunList':				[12,20,28,36,44,52,60],		## List of run numbers of loop over
+	# 'RunList':				[68,76,84,92,100,108,116,124],	## List of run numbers of loop over
+	# 'RunList':				[75,83,91,99,107,115,123,131],	## List of run numbers of loop over
+
 	# 'RunList':				list(range(1,3+1)),		## (July 01, RamanTOF = 76 ms, tau = 30 us)
 	# 'RunList':				list(range(4,6+1)),		## (July 01, RamanTOF = 46 ms, tau = 30 us)
 	# 'RunList':				list(range(7,9+1)),		## (July 01, RamanTOF = 16 ms, tau = 30 us)
 	# 'RunList':				list(range(19,23+1)),	## (July 01, RamanTOF = 16 ms, tau = 15 us)
 	# 'RunList':				list(range(24,28+1)),	## (July 01, RamanTOF = 46 ms, tau = 15 us)
 	# 'RunList':				list(range(1,5+1)),		## (July 02, RamanTOF = 76 ms, tau = 15 us)
-	'RunList':				list(range(6,7+1)),		## (July 02, RamanTOF = 16 ms, tau = 30 us)
+	# 'RunList':				list(range(6,7+1)),		## (July 02, RamanTOF = 16 ms, tau = 30 us)
 	# 'RunList':				list(range(8,9+1)),		## (July 02, RamanTOF = 46 ms, tau = 30 us)
 	# 'RunList':				list(range(10,11+1)),	## (July 02, RamanTOF = 76 ms, tau = 30 us)
 	# 'RunList':				list(range(17,24+1)),	## (July 27, RamanTOF = 77 ms, tau = 30 us)
@@ -180,7 +194,7 @@ PlotOpts = {
 	'ShowFit': 				True,			## Flag for overlaying fits with data (PlotData = True)
 	'SavePlot': 			False,			## Flag for saving data plots (PlotData = True)
 	'OverlayRunPlots':		True,			## Flag for overlaying plots from different runs (PlotData = True)
-	'MaxPlotsToDisplay':	9,				## Maximum number of individual plots to display (AnalysisLevel = 2, OverlayRunPlots = True)
+	'MaxPlotsToDisplay':	5,				## Maximum number of individual plots to display (AnalysisLevel = 2, OverlayRunPlots = True)
 	'ShowPlotLabels':		[True, True], 	## Plot labels [xLabel, yLabel]
 	'ShowPlotTitle': 		True,			## Flag for showing plot title (OverlayRunPlots = False)
 	'ShowFigureLabels':		False,			## Flag for showing figure labels ('a','b','c', etc.)
@@ -220,15 +234,15 @@ RamanYFitPars.add_many(
 	lm.Parameter('xScale',     value=+1.0, min=0., vary=False))
 RamanZFitPars = lm.Parameters()
 RamanZFitPars.add_many(
-	lm.Parameter('xOffset_kD', value=-2.0),
-	lm.Parameter('xOffset_kU', value=-2.0),
-	lm.Parameter('yOffset',    value=+0.45),
-	lm.Parameter('Contrast',   value=+0.3, min=0.),
+	lm.Parameter('xOffset_kD', value=-0.0),
+	lm.Parameter('xOffset_kU', value=+0.0),
+	lm.Parameter('yOffset',    value=+0.5),
+	lm.Parameter('Contrast',   value=+0.6, min=0.),
 	lm.Parameter('xScale',     value=+1.0, min=0., vary=False))
 
 RamanOpts = {
 	'FitData':				True,			## Flag for fitting data
-	'RunPlotVariable':		'RunTime',		## Independent variable for run plots (e.g. 'Run', 'RamanT', 'RamanpiZ', 'RunTime')
+	'RunPlotVariable':		'RamanPower',		## Independent variable for run plots (e.g. 'Run', 'RamanT', 'RamanpiZ', 'RunTime')
 	'RunPlotColors':		[['red', 'darkred'], ['royalblue', 'blue'], ['green','darkgreen'], ['darkorange','gold'], ['purple','darkviolet'], ['cyan','darkcyan'], ['pink','deeppink'], ['violet','darkviolet']],
 	'SortVariableOrder':	'Ascending',	## Control for sorting RunPlotVariable (AnalysisLevel = 2, 'None', Ascending', 'Descending')
 	'TrackRunFitPars':		False,			## Flag for using fit results from one run as the initial parameters for the next
