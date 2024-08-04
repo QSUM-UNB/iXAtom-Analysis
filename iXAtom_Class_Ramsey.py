@@ -2,26 +2,8 @@
 ## Filename:	iXAtom_Class_Ramsey.py
 ## Author:		B. Barrett
 ## Description: Ramsey class definition for iXAtom analysis package
-## Version:		3.2.4
-## Last Mod:	29/07/2020
-##===================================================================
-## Change Log:
-## 29/11/2019 - Ramsey class defined based on Raman class.
-##			  - Basic bug testing of AnalysisLevels = 0-3.
-## 			  - Separated global plot options into its own dictionary
-##				'PlotOpts' to facilite easy sharing with other classes.
-## 30/11/2019 - Minor modifications and bug fixes
-## 04/01/2020 - Completed overhaul of Ramsey class to use lmfit module
-##				and built-in models. Now this analysis code supports
-##				fitting to an arbitrary number of peaks using peak-like
-##				models such as Gaussian, Lorentzian, Sinc2, SincB, 
-##				Voigt, Pseudo-Voigt, and Moffat (i.e. Lorentzian-B).
-## 03/02/2020 - Implemented method RamseyAnalysisLevel5 for correlating
-##				analysis level = 3 results with monitor data.
-## 30/05/2020 - Implemented 'ConvertToBField' option in RamseyAnalysisLevel3
-## 29/07/2020 - Added parameter constraint functionality to Ramsey fits by passing
-##				all initial parameter properties ('min', 'max', 'vary', 'expr')
-##				to the lmfit.model.set_param_hint() method.
+## Version:		3.2.5
+## Last Mod:	17/11/2020
 #####################################################################
 
 import copy
@@ -87,7 +69,7 @@ class Ramsey(iXC_RunPars.RunParameters):
 		# self.Fit_method    = 'lm' ## 'lm': Levenberg-Marquardt, 'trf': Trust Region Reflective, 'dogbox': dogleg algorithm with rectangular trust regions
 		self.Fit_ftol      = 4.E-6
 		self.Fit_xtol      = 4.E-6
-		self.Fit_maxfev    = 20000
+		self.Fit_max_nfev  = 20000
 
 		self.nFitPars  = [len(self.RamseyOptions['FitParameters'][iax].valuesdict().keys()) for iax in range(3)]
 		self.nFitPeaks = [(self.nFitPars[iax] - 1)//3 for iax in range(3)]
@@ -158,13 +140,39 @@ class Ramsey(iXC_RunPars.RunParameters):
 	############### End of Ramsey.ParseRamseyData() #################
 	#################################################################
 
+	@staticmethod
+	def fRaman_Theory(x, p01_center, p02_center, p03_center, p01_height, p02_height, p03_height, yOffset, Omega, tau):
+		"""Theoretical fit model for co-propagating Raman spectral line.
+		ARGUMENTS:
+		\t x          (float) - Independent variable: Raman frequency (kHz)
+		\t p01_center (float) - Fit parameter: Center of peak 1 (kHz)
+		\t p02_center (float) - Fit parameter: Center of peak 2 (kHz)
+		\t p03_center (float) - Fit parameter: Center of peak 3 (kHz)
+		\t p01_height (float) - Fit parameter: Height of peak 1 (arb. units)
+		\t p02_height (float) - Fit parameter: Height of peak 2 (arb. units)
+		\t p03_height (float) - Fit parameter: Height of peak 3 (arb. units)
+		\t yOffset    (float) - Fit parameter: Offset from y = 0 (arb. units)
+		\t Omega      (float) - Fit parameter: Effective Rabi frequency (rad/us)
+		\t tau        (float) - Fit parameter: Pulse length (us)
+		"""
+
+		omega = lambda x: np.sqrt(Omega**2 + (2.*np.pi*x*1.E-3)**2)
+		p01 = p01_height*(Omega/omega(x - p01_center)*np.sin(0.5*omega(x - p01_center)*tau))**2
+		p02 = p02_height*(Omega/omega(x - p02_center)*np.sin(0.5*omega(x - p02_center)*tau))**2
+		p03 = p03_height*(Omega/omega(x - p03_center)*np.sin(0.5*omega(x - p03_center)*tau))**2
+
+		return yOffset + p01 + p02 + p03
+
+	################# End of Rabi.fRamsey_Theory() ##################
+	#################################################################
+
 	def ConstructFitModel(self, iax):
 		"""Construct fit model from lmfit Model class"""
 
 		initPars = self.RamseyOptions['FitParameters'][iax]
 
 		model = lm.models.ExpressionModel('yOffset + 0*x')
-		model.set_param_hint('yOffset', value=initPars['yOffset'].value, vary=initPars['yOffset'].vary, min=initPars['yOffset'].min, max=initPars['yOffset'].max)
+		model.set_param_hint('yOffset', value=initPars['yOffset'].value, min=initPars['yOffset'].min, vary=initPars['yOffset'].vary)
 
 		for iPeak in range(1,self.nFitPeaks[iax]+1):
 			prefix = 'p{:02d}_'.format(iPeak)
@@ -177,6 +185,7 @@ class Ramsey(iXC_RunPars.RunParameters):
 			gamma  = prefix+'gamma'
 			alpha  = prefix+'fraction'
 			beta   = prefix+'beta'
+			omega  = prefix+'omega'
 
 			if initPars[height].user_data['Model'] == 'Gauss':
 				initPars[sig] = lm.Parameter(name=sig, value=initPars[fwhm].value/2.35482, min=0.)
@@ -217,6 +226,16 @@ class Ramsey(iXC_RunPars.RunParameters):
 				else:
 					model.set_param_hint(beta, value=2., min=0., max=10.)
 
+			elif initPars[height].user_data['Model'] == 'Raman':
+				initPars[omega] = lm.Parameter(name=omega, value=initPars[fwhm].value/1.530730, min=0.)
+				initPars[amp]   = lm.Parameter(name=amp,   value=initPars[height].value, min=0.)
+				tau = '{:.3f}'.format(self.taupi[iax]*1.E3) ## ms
+				expression = amp+'*'+omega+'**2/('+omega+'**2+(x-'+cen+')**2)*sin(pi*sqrt('+omega+'**2+(x-'+cen+')**2)*'+tau+')**2'
+				model += lm.models.ExpressionModel(expression)
+				model.set_param_hint(height, value=initPars[height].value, min=0., expr=amp)
+				model.set_param_hint(fwhm  , value=initPars[fwhm].value,   min=0., expr='1.530730*'+omega)
+				model.set_param_hint(omega , value=initPars[omega].value,  min=0.)
+
 			elif initPars[height].user_data['Model'] == 'Voigt':
 				initPars[sig] = lm.Parameter(name=sig, value=initPars[fwhm].value/3.6013, min=0.)
 				initPars[amp] = lm.Parameter(name=amp, value=initPars[height].value*4.13273*initPars[sig].value, min=0.)
@@ -237,8 +256,9 @@ class Ramsey(iXC_RunPars.RunParameters):
 					model.set_param_hint(alpha, value=2., min=0., max=10.)
 
 			model.set_param_hint(cen, value=initPars[cen].value, vary=initPars[cen].vary, min=initPars[cen].min, max=initPars[cen].max, expr=initPars[cen].expr)
-			model.set_param_hint(sig, value=initPars[sig].value, vary=initPars[sig].vary, min=initPars[sig].min, max=initPars[sig].max, expr=initPars[sig].expr)
 			model.set_param_hint(amp, value=initPars[amp].value, vary=initPars[amp].vary, min=initPars[amp].min, max=initPars[amp].max, expr=initPars[amp].expr)
+			if sig in initPars.keys():
+				model.set_param_hint(sig, value=initPars[sig].value, vary=initPars[sig].vary, min=initPars[sig].min, max=initPars[sig].max, expr=initPars[sig].expr)
 
 		return model
 
@@ -258,15 +278,14 @@ class Ramsey(iXC_RunPars.RunParameters):
 		else:
 			weights = np.ones(len(yErr))
 
-		fit_kws = {'xtol': self.Fit_xtol, 'ftol': self.Fit_ftol, 'maxfev': self.Fit_maxfev} 
-		result  = self.FitModel.fit(yData, self.FitPars, x=xData, weights=weights, method='leastsq', fit_kws=fit_kws)
+		fit_kws = {'xtol': self.Fit_xtol, 'ftol': self.Fit_ftol} 
+		result  = self.FitModel.fit(yData, self.FitPars, x=xData, weights=weights, method='leastsq', max_nfev=self.Fit_max_nfev, fit_kws=fit_kws)
 
-		## Note that result.residual is divided by the errors
-		# yRes    = result.residual
+		# yRes    = result.residual ## Note that this quantity is divided by the errors
 		yRes    = yData - result.best_fit
 		sRes    = np.std(yRes)
 		dsRes   = sRes/np.sqrt(2*result.nfree)
-		message = 'iXC_Ramsey::{} (nfev = {}, redchi = {:5.3E})'.format(result.message, result.nfev, result.redchi)
+		message = 'iXC_Ramsey::{} (ier = {}, nfev = {}, redchi = {:5.3E})'.format(result.message, result.ier, result.nfev, result.redchi)
 
 		if result.success:
 			logging.info(message)
@@ -424,10 +443,8 @@ class Ramsey(iXC_RunPars.RunParameters):
 
 		if self.RawData:
 			label = 'raw'
-			dfList = self.RawDataDF
 		else:
 			label = 'post-processed'
-			dfList = self.PostDataDF
 
 		logging.info('iXC_Ramsey::Analyzing {} Ramsey data for {}...'.format(label, self.RunString))
 
@@ -453,7 +470,7 @@ class Ramsey(iXC_RunPars.RunParameters):
 						xData  = np.delete(xData, self.Outliers[iax])
 						yData  = np.delete(yData, self.Outliers[iax])
 						yErr   = np.delete(yErr,  self.Outliers[iax])
-						[result, yRes, sRes, dsRes] = self.FitRamseyData(iax, xData, yData, yErr)
+						[result, yRes, sRes, dsRes] = self.FitRamseyData(xData, yData, yErr)
 
 				if self.RawData:
 					self.RawFitResult[iax]  = result
@@ -499,12 +516,16 @@ class Ramsey(iXC_RunPars.RunParameters):
 			if self.RamseyOptions['RunPlotVariable'] == 'Run':
 				CustomPlotOpts['LegLabel'] = self.AxisLegLabels[iax] + ', Run {:02d}'.format(self.Run)
 			elif self.RamseyOptions['RunPlotVariable'] == 'RamanTOF':
-				CustomPlotOpts['LegLabel'] = self.AxisLegLabels[iax] + ', {:5.2f} ms'.format(getattr(self, 'RamanTOF')*1.E+3)
+				CustomPlotOpts['LegLabel'] = self.AxisLegLabels[iax] + ', {:.2f} ms'.format(getattr(self, 'RamanTOF')*1.E+3)
+			elif self.RamseyOptions['RunPlotVariable'] == 'TiltX':
+				CustomPlotOpts['LegLabel'] = self.AxisLegLabels[iax] + ', {:.1f} deg'.format(getattr(self, 'TiltX'))
+			elif self.RamseyOptions['RunPlotVariable'] == 'TiltZ':
+				CustomPlotOpts['LegLabel'] = self.AxisLegLabels[iax] + ', {:.1f} deg'.format(getattr(self, 'TiltZ'))
 			elif self.RamseyOptions['RunPlotVariable'] == 'RunTime':
 				runTimeStamp = dt.datetime.fromtimestamp(self.RunTime, tz=pytz.timezone('Europe/Paris')).strftime('%H:%M:%S')
 				CustomPlotOpts['LegLabel'] = self.AxisLegLabels[iax] + ', {}'.format(runTimeStamp)
 			else:
-				CustomPlotOpts['LegLabel'] = self.AxisLegLabels[iax] + ', {:5.2e}'.format(getattr(self, self.RamseyOptions['RunPlotVariable']))
+				CustomPlotOpts['LegLabel'] = self.AxisLegLabels[iax] + ', {:.2e}'.format(getattr(self, self.RamseyOptions['RunPlotVariable']))
 		else:
 			CustomPlotOpts['Color']    = self.DefaultPlotColors[iax][0]
 			CustomPlotOpts['LegLabel'] = self.AxisLegLabels[iax]
@@ -582,10 +603,8 @@ class Ramsey(iXC_RunPars.RunParameters):
 
 		if self.RawData:
 			label = 'raw'
-			dfList = self.RawDataDF
 		else:
 			label = 'post-processed'
-			dfList = self.PostDataDF
 
 		logging.info('iXC_Ramsey::Plotting {} Ramsey data for {}...'.format(label, self.RunString))
 
@@ -945,6 +964,10 @@ def RamseyAnalysisLevel2(AnalysisCtrl, RamseyOpts, PlotOpts):
 
 			runVarList[iRun] = getattr(Rams, runVarKey)
 
+		if runVarKey == 'TiltX' or runVarKey == 'TiltZ':
+			## Transform tilts into -180 to +180 deg range
+			runVarList = np.arcsin(np.sin(runVarList*np.pi/180.))*180./np.pi
+
 		## Sort run variables and run list
 		orderList  = np.argsort(runVarList)
 		runVarList = runVarList[orderList]
@@ -1035,18 +1058,21 @@ def RamseyAnalysisLevel3(AnalysisCtrl, RamseyOpts, PlotOpts, RunPars):
 	tRun   = np.zeros(nRuns)
 	x      = np.zeros(nRuns)
 	tof    = np.zeros(nRuns)
-	y0     = np.zeros((3,2,nRuns))		 	 ## [iax,(0,1=BestFit,FitErr),iRun]
-	SNR    = np.zeros((3,2,nRuns))		 	 ## [iax,(0,1=BestFit,FitErr),iRun]
-	temp   = np.zeros((3,2,nRuns))		 	 ## [iax,(0,1=BestFit,FitErr),iRun]
-	height = np.zeros((3,max(nFitPeaks),2,nRuns)) ## [iax,iPeak,(0,1=BestFit,FitErr),iRun]
-	center = np.zeros((3,max(nFitPeaks),2,nRuns)) ## [iax,iPeak,(0,1=BestFit,FitErr),iRun]
-	fwhm   = np.zeros((3,max(nFitPeaks),2,nRuns)) ## [iax,iPeak,(0,1=BestFit,FitErr),iRun]
+	y0     = np.zeros((3,2,nRuns))		 	 		## [iax,(0,1=BestFit,FitErr),iRun]
+	SNR    = np.zeros((3,2,nRuns))		 	 		## [iax,(0,1=BestFit,FitErr),iRun]
+	temp   = np.zeros((3,2,nRuns))		 	 		## [iax,(0,1=BestFit,FitErr),iRun]
+	height = np.zeros((3,max(nFitPeaks),2,nRuns)) 	## [iax,iPeak,(0,1=BestFit,FitErr),iRun]
+	center = np.zeros((3,max(nFitPeaks),2,nRuns)) 	## [iax,iPeak,(0,1=BestFit,FitErr),iRun]
+	fwhm   = np.zeros((3,max(nFitPeaks),2,nRuns)) 	## [iax,iPeak,(0,1=BestFit,FitErr),iRun]
 
 	SummaryDF = [pd.DataFrame([]) for iax in range(3)]
 
-	(nRows, nCols) = (2,3)
+	if RamseyOpts['RunPlotVariable'] == 'RamanTOF':
+		(nRows, nCols) = (3,3) ## Additional row for cloud position
+	else:
+		(nRows, nCols) = (2,3)
 
-	Fig, Axs = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*4,nRows*3), sharex=True, constrained_layout=True)
+	axs = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*4,nRows*2.5), sharex='row', constrained_layout=True)[1]
 
 	iRun = -1
 	for RunNum in RunList:
@@ -1132,6 +1158,12 @@ def RamseyAnalysisLevel3(AnalysisCtrl, RamseyOpts, PlotOpts, RunPars):
 			## Special operations for RamanpiX, RamanpiY, RamanpiZ
 			x *= 1.0E6
 			xLabel = r'$\tau_{\pi}$  ($\mu$s)'
+		elif RamseyOpts['RunPlotVariable'] == 'TiltX':
+			## Special operations for TiltX
+			xLabel = r'$\theta_x$  (deg)'
+		elif RamseyOpts['RunPlotVariable'] == 'TiltZ':
+			## Special operations for TiltZ
+			xLabel = r'$\theta_z$  (deg)'
 		elif RamseyOpts['RunPlotVariable'] == 'RunTime':
 			t0 = dt.datetime.fromtimestamp(x[0], tz=pytz.timezone('Europe/Paris'))
 			x  = (x - x[0])/60.
@@ -1164,6 +1196,9 @@ def RamseyAnalysisLevel3(AnalysisCtrl, RamseyOpts, PlotOpts, RunPars):
 		ipkCo = [-1,-1,-1]
 
 		for iax in Rams.iaxList:
+
+			r = 0.5*Rams.aBody[iax]*tof**2*1.E3 ## Position along X,Y,Z in body frame (mm)
+
 			for ip in range(nFitPeaks[iax]):
 				if state[iax][ip] == -1:
 					if peak[iax][ip] == 'kU':
@@ -1191,50 +1226,180 @@ def RamseyAnalysisLevel3(AnalysisCtrl, RamseyOpts, PlotOpts, RunPars):
 				customPlotOpts['LegLabel'] = keys[iax][ip]
 				customPlotOpts['xLabel']   = 'None'
 				customPlotOpts['yLabel']   = 'Height'
-				iXUtils.CustomPlot(Axs[0][0], customPlotOpts, x, height[iax,ip,0], height[iax,ip,1])
+				iXUtils.CustomPlot(axs[0,0], customPlotOpts, x, height[iax,ip,0], height[iax,ip,1])
 
-				customPlotOpts['yLabel'] = 'FWHM  (kHz)'
-				iXUtils.CustomPlot(Axs[0][1], customPlotOpts, x, fwhm[iax,ip,0], fwhm[iax,ip,1])
+				customPlotOpts['xLabel']   = 'Position  (mm)'
+				iXUtils.CustomPlot(axs[2,0], customPlotOpts, r, height[iax,ip,0], height[iax,ip,1])
 
-				customPlotOpts['yLabel'] = r'$\delta$  (kHz)'
-				iXUtils.CustomPlot(Axs[0][2], customPlotOpts, x, center[iax,ip,0], center[iax,ip,1])
+				customPlotOpts['xLabel']   = 'None'
+				customPlotOpts['yLabel']   = 'FWHM  (kHz)'
+				iXUtils.CustomPlot(axs[0,1], customPlotOpts, x, fwhm[iax,ip,0], fwhm[iax,ip,1])
+
+				customPlotOpts['yLabel']   = r'$\delta$  (kHz)'
+				iXUtils.CustomPlot(axs[0,2], customPlotOpts, x, center[iax,ip,0], center[iax,ip,1])
 
 			customPlotOpts['xLabel']   = xLabel
 			customPlotOpts['yLabel']   = 'SNR'
-			customPlotOpts['Color']    = 'grey' if iax == 0 else ('dimgrey' if iax == 1 else 'black')
+			customPlotOpts['Color']    = 'grey' if iax == 0 else ('saddlebrown' if iax == 1 else 'black')
 			customPlotOpts['LegLabel'] = Rams.AxisLegLabels[iax][0]
-			iXUtils.CustomPlot(Axs[1][0], customPlotOpts, x, SNR[iax,0], SNR[iax,1])
-
+			iXUtils.CustomPlot(axs[1,0], customPlotOpts, x, SNR[iax,0], SNR[iax,1])
+			
 			if RamseyOpts['CopropagatingSpectrum'] and ipkCo[0] != -1 and ipkCo[2] != -1:
 				if RamseyOpts['ConvertToBField']:
 					BmFm1   = Rams.Phys.BBreitRabi(1., -1., 2., -1., center[iax,ipkCo[0],0]*1.E3)
 					dBmFm1  = abs(Rams.Phys.BBreitRabi(1., -1., 2., -1., (center[iax,ipkCo[0],0] + center[iax,ipkCo[0],1])*1.E3) - BmFm1)
 					BmFp1   = Rams.Phys.BBreitRabi(1., +1., 2., +1., center[iax,ipkCo[2],0]*1.E3)
 					dBmFp1  = abs(Rams.Phys.BBreitRabi(1., +1., 2., +1., (center[iax,ipkCo[2],0] + center[iax,ipkCo[2],1])*1.E3) - BmFp1)
+					BMean   = 0.5*(BmFp1 + BmFm1)
+					BErr    = 0.5*np.sqrt(dBmFp1**2 + dBmFm1**2)
 
 					customPlotOpts['yLabel'] = r'$B$  (G)'
-					iXUtils.CustomPlot(Axs[1][1], customPlotOpts, x, 0.5*(BmFp1 + BmFm1), 0.5*np.sqrt(dBmFp1**2 + dBmFm1**2))
-				else:
-					customPlotOpts['yLabel'] = r'$(\delta_{|1\rangle} - \delta_{|-1\rangle})/2$  (kHz)'
-					iXUtils.CustomPlot(Axs[1][1], customPlotOpts, x, 0.5*(center[iax,ipkCo[2],0] - center[iax,ipkCo[0],0]), 0.5*np.sqrt(center[iax,ipkCo[2],1]**2 + center[iax,ipkCo[0],1]**2))
-			elif not RamseyOpts['CopropagatingSpectrum'] and ipkU[1] != -1 and ipkD[1] != -1:
-				customPlotOpts['yLabel'] = r'$(\delta_{\uparrow} - \delta_{\downarrow})/2 - \delta_D$  (kHz)'
-				fDoppler = Rams.keff*Rams.gLocal*tof*1.E-3/(2*np.pi)
-				iXUtils.CustomPlot(Axs[1][1], customPlotOpts, x, 0.5*(center[iax,ipkU[1],0] - center[iax,ipkD[1],0]) - fDoppler, 0.5*np.sqrt(center[iax,ipkU[1],1]**2 + center[iax,ipkD[1],1]**2))
+					iXUtils.CustomPlot(axs[1,1], customPlotOpts, x, BMean, BErr)
+					customPlotOpts['xLabel'] = 'Position  (mm)'
+					iXUtils.CustomPlot(axs[2,1], customPlotOpts, r, BMean, BErr)
 
+					if RamseyOpts['FitPositionData']:
+						print('--------------------------------------------')
+						print(' {}-Axis Results:'.format(Rams.AxisFileLabels[iax]))
+						print('--------------------------------------------')
+						if abs(Rams.aBody[iax]/Rams.gLocal) > 1.E-4 and nRuns > 2:
+							pOpt, pCov = np.polyfit(r, BMean, deg=1, w=1./BErr, full=False, cov=True)
+							pErr = np.sqrt(np.diag(pCov))
+							pFit = np.poly1d(pOpt)
+
+							customPlotOpts['Linestyle'] = '-'
+							customPlotOpts['Marker']    = 'None'
+							iXUtils.CustomPlot(axs[2,1], customPlotOpts, r, pFit(r))
+							customPlotOpts['Linestyle'] = 'None'
+							customPlotOpts['Marker']    = '.'
+
+							print(' B_Offset   = ({:.2f} +/- {:.2f} ) mG'.format(pOpt[1]*1.E3, pErr[1]*1.E3))
+							print(' B_Grad     = ({:.3f} +/- {:.3f}) mG/mm'.format(pOpt[0]*1.E3, pErr[0]*1.E3))
+						else:
+							print(' B_Offset   = ({:.2f} +/- {:.2f}) mG'.format(np.mean(BMean)*1.E3, np.std(BMean)*1.E3))
+				else:
+					fDelta  = 0.5*(center[iax,ipkCo[2],0] - center[iax,ipkCo[0],0])
+					dfDelta = 0.5*np.sqrt(center[iax,ipkCo[2],1]**2 + center[iax,ipkCo[0],1]**2)
+					customPlotOpts['yLabel'] = r'$(\delta_{|1\rangle} - \delta_{|-1\rangle})/2$  (kHz)'
+					iXUtils.CustomPlot(axs[1,1], customPlotOpts, x, fDelta, dfDelta)
+					customPlotOpts['xLabel'] = 'Position  (mm)'
+					iXUtils.CustomPlot(axs[2,1], customPlotOpts, r, fDelta, dfDelta)
+
+					if RamseyOpts['FitPositionData'] and nRuns > 2:
+						print('--------------------------------------------')
+						print(' {}-Axis Results:'.format(Rams.AxisFileLabels[iax]))
+						print('--------------------------------------------')
+						if abs(Rams.aBody[iax]/Rams.gLocal) > 1.E-4:
+							pOpt, pCov = np.polyfit(r, fDelta, deg=1, w=1./dfDelta, full=False, cov=True)
+							pErr = np.sqrt(np.diag(pCov))
+							pFit = np.poly1d(pOpt)
+
+							customPlotOpts['Linestyle'] = '-'
+							customPlotOpts['Marker']    = 'None'
+							iXUtils.CustomPlot(axs[2,1], customPlotOpts, r, pFit(r))
+							customPlotOpts['Linestyle'] = 'None'
+							customPlotOpts['Marker']    = '.'
+
+							print(' fB_Offset  = ({:.2f} +/- {:.2f}) kHz'.format(pOpt[1], pErr[1]))
+							print(' fB_Grad    = ({:.3f} +/- {:.3f}) kHz/mm'.format(pOpt[0], pErr[0]))
+						else:
+							print(' fB_Offset  = ({:.2f} +/- {:.2f}) kHz'.format(np.mean(fDelta), np.std(fDelta)))
+
+				# fSigma  = 0.5*(center[iax,ipkCo[2],0] + center[iax,ipkCo[0],0])
+				# dfSigma = 0.5*np.sqrt(center[iax,ipkCo[2],1]**2 + center[iax,ipkCo[0],1]**2)
+				fSigma  = center[iax,ipkCo[1],0]
+				dfSigma = center[iax,ipkCo[1],1]
+				customPlotOpts['xLabel'] = xLabel
+				customPlotOpts['yLabel'] = r'$\delta_{|0\rangle}$  (kHz)'
+				iXUtils.CustomPlot(axs[1,2], customPlotOpts, x, fSigma, dfSigma)
+				customPlotOpts['xLabel'] = 'Position  (mm)'
+				iXUtils.CustomPlot(axs[2,2], customPlotOpts, r, fSigma, dfSigma)
+
+				if RamseyOpts['FitPositionData']:
+					if abs(Rams.aBody[iax]/Rams.gLocal) > 1.E-4 and nRuns > 2:
+						pOpt, pCov = np.polyfit(r, fSigma, deg=1, w=1./dfSigma, full=False, cov=True)
+						pErr = np.sqrt(np.diag(pCov))
+						pFit = np.poly1d(pOpt)
+
+						customPlotOpts['Linestyle'] = '-'
+						customPlotOpts['Marker']    = 'None'
+						customPlotOpts['LegLabel']  = None
+						iXUtils.CustomPlot(axs[2,2], customPlotOpts, r, pFit(r))
+						customPlotOpts['Linestyle'] = 'None'
+						customPlotOpts['Marker']    = '.'
+
+						print(' fLS_Offset = ({:.3f} +/- {:.3f}) kHz'.format(pOpt[1], pErr[1]))
+						print(' fLS_Grad   = ({:.3f} +/- {:.3f}) kHz/mm'.format(pOpt[0], pErr[0]))
+					else:
+						print(' fLS_Offset = ({:.3f} +/- {:.3f}) kHz'.format(np.mean(fSigma), np.std(fSigma)))
+
+			elif not RamseyOpts['CopropagatingSpectrum'] and ipkU[1] != -1 and ipkD[1] != -1:
+				customPlotOpts['xLabel'] = xLabel
+				customPlotOpts['yLabel'] = r'$(\delta_{\uparrow} - \delta_{\downarrow})/2 - \delta_D$  (kHz)'
+				fDoppler = Rams.keff*Rams.aBody[iax]*tof*1.E-3/(2*np.pi)
+				fDelta   = 0.5*(center[iax,ipkU[1],0] - center[iax,ipkD[1],0]) - fDoppler
+				dfDelta  = 0.5*np.sqrt(center[iax,ipkU[1],1]**2 + center[iax,ipkD[1],1]**2)
+
+				iXUtils.CustomPlot(axs[1,1], customPlotOpts, x, fDelta, dfDelta)
+				customPlotOpts['xLabel'] = 'Position  (mm)'
+				iXUtils.CustomPlot(axs[2,1], customPlotOpts, r, fDelta, dfDelta)
+
+				customPlotOpts['xLabel'] = xLabel
 				customPlotOpts['yLabel'] = r'$(\delta_{\uparrow} + \delta_{\downarrow})/2 - \delta_R$  (kHz)'
 				fRecoil = Rams.omegaR*1.E-3/(2*np.pi)
-				iXUtils.CustomPlot(Axs[1][2], customPlotOpts, x, 0.5*(center[iax,ipkU[1],0] + center[iax,ipkD[1],0]) - fRecoil, 0.5*np.sqrt(center[iax,ipkU[1],1]**2 + center[iax,ipkD[1],1]**2))
+				fSigma  = 0.5*(center[iax,ipkU[1],0] + center[iax,ipkD[1],0]) - fRecoil
+				dfSigma = 0.5*np.sqrt(center[iax,ipkU[1],1]**2 + center[iax,ipkD[1],1]**2)
+
+				iXUtils.CustomPlot(axs[1,2], customPlotOpts, x, fSigma, dfSigma)
+				customPlotOpts['xLabel'] = 'Position  (mm)'
+				iXUtils.CustomPlot(axs[2,2], customPlotOpts, r, fSigma, dfSigma)
+
+				if RamseyOpts['FitPositionData'] and nRuns > 2:
+					print('--------------------------------------------')
+					print(' {}-Axis Results:'.format(Rams.AxisFileLabels[iax]))
+					print('--------------------------------------------')				
+					if abs(Rams.aBody[iax]/Rams.gLocal) > 1.E-4:
+						pOpt, pCov = np.polyfit(r, fDelta, deg=1, w=1./dfDelta, full=False, cov=True)
+						pErr = np.sqrt(np.diag(pCov))
+						pFit = np.poly1d(pOpt)
+
+						customPlotOpts['Linestyle'] = '-'
+						customPlotOpts['Marker']    = 'None'
+						iXUtils.CustomPlot(axs[2,1], customPlotOpts, r, pFit(r))
+						customPlotOpts['Linestyle'] = 'None'
+						customPlotOpts['Marker']    = '.'
+
+						print(' fD_Offset  = ({:.3f} +/- {:.3f}) kHz'.format(pOpt[1], pErr[1]))
+						print(' fD_Grad    = ({:.3f} +/- {:.3f}) kHz/mm'.format(pOpt[0], pErr[0]))
+
+						pOpt, pCov = np.polyfit(r, fSigma, deg=1, w=1./dfSigma, full=False, cov=True)
+						pErr = np.sqrt(np.diag(pCov))
+						pFit = np.poly1d(pOpt)
+
+						customPlotOpts['Linestyle'] = '-'
+						customPlotOpts['Marker']    = 'None'
+						customPlotOpts['LegLabel']  = None
+						iXUtils.CustomPlot(axs[2,2], customPlotOpts, r, pFit(r))
+						customPlotOpts['Linestyle'] = 'None'
+						customPlotOpts['Marker']    = '.'
+
+						print(' fLS_Offset = ({:.3f} +/- {:.3f}) kHz'.format(pOpt[1], pErr[1]))
+						print(' fLS_Grad   = ({:.3f} +/- {:.3f}) kHz/mm'.format(pOpt[0], pErr[0]))
+					else:
+						print(' fD_Offset  = ({:.3f} +/- {:.3f}) kHz'.format(np.mean(fDelta), np.std(fDelta)))
+						print(' fLS_Offset = ({:.3f} +/- {:.3f}) kHz'.format(np.mean(fSigma), np.std(fSigma)))
 
 	if PlotOpts['ShowPlotLegend']:
 		if PlotOpts['FixLegLocation']:
 			## Fix legend location outside upper right of plot
-			Axs[0][2].legend(loc='upper left', bbox_to_anchor=(1.01,1.0))
-			Axs[1][2].legend(loc='upper left', bbox_to_anchor=(1.01,1.0))
+			axs[0,2].legend(loc='upper left', bbox_to_anchor=(1.01,1.0))
+			axs[1,2].legend(loc='upper left', bbox_to_anchor=(1.01,1.0))
+			axs[2,2].legend(loc='upper left', bbox_to_anchor=(1.01,1.0))
 		else:
 			## Let matlibplot find best legend location
-			Axs[0][2].legend(loc='best')
-			Axs[1][2].legend(loc='best')
+			axs[0,2].legend(loc='best')
+			axs[1,2].legend(loc='best')
+			axs[2,2].legend(loc='best')
 	if PlotOpts['SavePlot']:
 		plt.savefig(Rams.PlotPath, dpi=150)
 		logging.info('iXC_Ramsey::Ramsey plot saved to:')
@@ -1304,9 +1469,7 @@ def RamseyAnalysisLevel4(AnalysisCtrl, RamseyOpts, PlotOpts, RunPars):
 	WorkDir = AnalysisCtrl['WorkDir']
 	Folder  = AnalysisCtrl['Folder']
 	RunList = AnalysisCtrl['RunList']
-
 	RunNum  = RunList[0]
-	nRuns  	= len(RunList)
 
 	## Load first run to extract basic parameters
 	Rams = Ramsey(WorkDir, Folder, RunNum, RamseyOpts, PlotOpts, False, RunPars.__dict__.items())
@@ -1352,7 +1515,7 @@ def RamseyAnalysisLevel4(AnalysisCtrl, RamseyOpts, PlotOpts, RunPars):
 			lLabels    = [[r'$B_{|+1\rangle}$', r'$B_{|-1\rangle}$', r'$\Delta B$']]
 			ADev_Subsets      = [[True, True, True]]
 			ADev_Fit          = [[False, False, False]]
-			ADev_Fit_FitExp   = [[False, False, False]]
+			ADev_Fit_FixExp   = [[False, False, False]]
 			ADev_Fit_SetRange = [[False, False, False]]
 			ADev_Fit_Range    = [[[1.5E2, 2.E3], [1.5E2, 2.E3], [1.5E2, 2.E3]]]
 		else:
@@ -1365,7 +1528,7 @@ def RamseyAnalysisLevel4(AnalysisCtrl, RamseyOpts, PlotOpts, RunPars):
 			lLabels    = [[r'$\delta_{|0\rangle}$', r'$\Sigma \delta$'], [r'$\delta_{|+1\rangle}$', r'$\delta_{|-1\rangle}$', r'$\Delta \delta$']]
 			ADev_Subsets      = [[True, True], [True, True, True]]
 			ADev_Fit          = [[False, False], [False, False, False]]
-			ADev_Fit_FitExp   = [[False, False], [False, False, False]]
+			ADev_Fit_FixExp   = [[False, False], [False, False, False]]
 			ADev_Fit_SetRange = [[False, False], [False, False, False]]
 			ADev_Fit_Range    = [[[1.5E2, 2.E3], [1.5E2, 2.E3]], [[1.5E2, 2.E3], [1.5E2, 2.E3], [1.5E2, 2.E3]]]
 
@@ -1411,7 +1574,7 @@ def RamseyAnalysisLevel4(AnalysisCtrl, RamseyOpts, PlotOpts, RunPars):
 			'ADev_Fit_XLimits'	: [2.E2, 4.E4],
 			'ADev_Fit_SetRange'	: ADev_Fit_SetRange,
 			'ADev_Fit_Range'	: ADev_Fit_Range,
-			'ADev_Fit_FixExp'	: ADev_Fit_FitExp
+			'ADev_Fit_FixExp'	: ADev_Fit_FixExp
 			}
 
 		iXUtils.AnalyzeTimeSeries(tRange, yData, yErr, Options)
@@ -1432,9 +1595,7 @@ def RamseyAnalysisLevel5(AnalysisCtrl, RamseyOpts, PlotOpts, RunPars):
 	WorkDir = AnalysisCtrl['WorkDir']
 	Folder  = AnalysisCtrl['Folder']
 	RunList = AnalysisCtrl['RunList']
-
 	RunNum  = RunList[0]
-	nRuns  	= len(RunList)
 
 	## Load first run to extract basic parameters
 	Rams = Ramsey(WorkDir, Folder, RunNum, RamseyOpts, PlotOpts, False, RunPars.__dict__.items())
@@ -1446,16 +1607,15 @@ def RamseyAnalysisLevel5(AnalysisCtrl, RamseyOpts, PlotOpts, RunPars):
 
 	for iax in Rams.iaxList:
 
-		nData  = SummaryDF[iax]['RunTime'].shape[0]
-		tStart = SummaryDF[iax]['RunTime'].iloc[ 0]
-		tStop  = SummaryDF[iax]['RunTime'].iloc[-1]
-		tStep  = (tStop - tStart)/(nData-1)
+		nData   = SummaryDF[iax]['RunTime'].shape[0]
+		tStart  = SummaryDF[iax]['RunTime'].iloc[ 0]
+		tStop   = SummaryDF[iax]['RunTime'].iloc[-1]
+		# tStep   = (tStop - tStart)/(nData-1)
 
-		t0     = dt.datetime.fromtimestamp(tStart, tz=pytz.timezone('Europe/Paris'))
-		xLabel = 'Run Time - {}  (s)'.format(t0.strftime('%H:%M:%S'))
-
-		tRange = np.array([0., tStop - tStart, tStep])
-		tData  = np.linspace(tStart, tStop, num=nData, endpoint=True)
+		# t0      = dt.datetime.fromtimestamp(tStart, tz=pytz.timezone('Europe/Paris'))
+		# xLabel  = 'Run Time - {}  (s)'.format(t0.strftime('%H:%M:%S'))
+		# tRange  = np.array([0., tStop - tStart, tStep])
+		tData   = np.linspace(tStart, tStop, num=nData, endpoint=True)
 
 		parName = RamseyOpts['CorrelParameter']
 		yData	= SummaryDF[iax][parName].to_numpy()

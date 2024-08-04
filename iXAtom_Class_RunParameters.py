@@ -2,21 +2,8 @@
 ## Filename:	iXAtom_Class_RunParameters.py
 ## Author:		B. Barrett
 ## Description: RunParameters class definition for iXAtom analysis package
-## Version:		3.2.4
-## Last Mod:	14/01/2020
-##===================================================================
-## Change Log:
-## 12/10/2019 - RunParameters class defined and bug tested
-##				(for LabVIEW v3.1 data only)
-## 14/10/2019 - Detector class defined and bug tested
-## 17/10/2019 - Minor modifications for iXAtom_Main compatibility
-## 25/11/2019 - Changed 'SoftwareVersion' instance variable type from
-##				string to float to make version casing simpler
-## 07/01/2020 - Added method 'CreatePlotAxes' to facilitate creating
-##				individual or Run-overlayed plots in Raman/Ramsey
-##				AnalysisLevel = 2.
-## 14/01/2020 - Added method to RunParameters get run timing parameters
-##				from timestamps recorded in the raw data files.
+## Version:		3.2.5
+## Last Mod:	20/11/2020
 #####################################################################
 
 import csv
@@ -56,10 +43,18 @@ class RunParameters:
 		self.AxisMode = 'Unknown'
 		self.RamanScanMode = 'Unknown'
 		self.ScanQuantity = 'Unknown'
+
+		## Pre-v3.4 keys:
 		self.kUpFrequency = 0.
 		self.kDownFrequency = 0.
 		self.kUpChirpRate = 0.
 		self.kDownChirpRate = 0.
+		## Post-v3.4 keys:
+		self.RamankUFreq = [0., 0., 0.]
+		self.RamankDFreq = [0., 0., 0.]
+		self.RamankUChirp = [0., 0., 0.]
+		self.RamankDChirp = [0., 0., 0.]
+
 		self.RamanDetuning = 0.
 		self.RamanPower = 0.
 		self.RamanTOF = 0.
@@ -94,7 +89,7 @@ class RunParameters:
 		self.LCRBurstUpLength = 0.
 		self.LCRBurstDownLength = 0.
 		self.TiltX = 0.
-		self.TiltY = 0.
+		self.TiltZ = 0.
 		self.ShieldState = 'Unknown'
 		self.UsingRTSequencer = False
 		self.RTAccelType = 'Unknown'
@@ -131,9 +126,11 @@ class RunParameters:
 		self.RawFolderPath  = os.path.join(self.WorkDir, self.Folder, self.RunString)
 		self.RawFileName    = 'Parameters.txt'
 		self.RawFilePath    = os.path.join(self.RawFolderPath, self.RawFileName)
+		self.RawDataDF		= []
 		self.PostFolderPath = os.path.join(self.WorkDir, 'PostProcessed', self.Folder, self.RunString)
 		self.PostFileNames  = [['' for ik in range(2)] for iax in range(3)]
 		self.PostFilePaths  = [['' for ik in range(2)] for iax in range(3)]
+		self.PostDataDF		= []
 		self.StreamFolderPath = os.path.join(self.WorkDir, 'Streaming', self.Folder, self.RunString)
 
 		self.DefaultPlotColors = [
@@ -176,9 +173,8 @@ class RunParameters:
 
 		if self.SoftwareVersion >= 3.1:
 			## Use v3.1 formatting
-			parDF = pd.read_csv(self.RawFilePath, delimiter=':', header=None)
-			parList = parDF.values
-			nPars   = len(parList)
+			parDF    = pd.read_csv(self.RawFilePath, delimiter=':', header=None)
+			parList  = parDF.values
 			parItems = list(self.__dict__.items())
 			for par in parList:
 				for (key,val) in parItems:
@@ -202,11 +198,10 @@ class RunParameters:
 						break
 		else:
 			## Use pre-v3.1 formatting
-			with open(ParFile,'r') as f:
+			with open(self.RawFilePath,'r') as f:
 				parText = f.read()
 
-			parList = parText.split('\n')[:-1] # Omit last element which is an empty line
-			nPars = len(parList)
+			parList  = parText.split('\n')[:-1] # Omit last element which is an empty line
 			parItems = list(self.__dict__.items())
 
 			for par in parList:
@@ -236,19 +231,23 @@ class RunParameters:
 		self.Phys      = iXC_Phys.Physics(self)	## Instance of iXAtom Physics class
 
 		## Useful physical constants
-		self.gLocal    = self.Phys.gLocal	## (float) Local value of g (m/s**2) (from muQuans)
+		self.gLocal    = self.Phys.gLocal	## (float) Local value of g (m/s^2)
+		self.aBody     = self.Phys.aBody	## (np.array) Acceleration vector in body frame (m/s^2)
 		self.omegaHF   = self.Phys.omegaHF	## (float) Hyperfine splitting of 87Rb 5S_{1/2} (rad/s)
 		self.kBoltz    = self.Phys.kBoltz	## (float) Boltzmann's constant (J/K)
 		self.MRb	   = self.Phys.MRb		## (float) Atomic mass of 87Rb (kg)
 
 		## Atom interferometer parameters
 		self.keff      = self.Phys.keff  	## (float) Effective Raman wavenumber (rad/m)
+		self.deltaSum  = self.Phys.deltaSum	## (float) Raman half-sum frequency (rad/s)
+		self.deltaDiff = self.Phys.deltaDiff## (float) Raman half-difference frequency (rad/s)
 		self.omegaR    = self.Phys.omegaR 	## (float) Recoil frequency (rad/s)
 		self.taupi 	   = self.Phys.taupi 	## (list)  Raman pi-pulse durations (s)
 		self.Omegaeff  = self.Phys.Omegaeff	## (list)  Effective Rabi frequencies (rad/s)
 		self.Teff      = self.Phys.Teff 	## (list)  Effective interrogation times (s)
-		self.Seff      = self.Phys.Seff		## (list)  Effective AI scale factors (rad/m/s**2)
-		self.TempScale = (0.5*np.pi**2/np.log(2))*self.MRb/(self.kBoltz*self.keff**2)*1.E+12 ## (float) Conversion factor from peak FWHM to temperature (uK/kHz**2)
+		self.Seff      = self.Phys.Seff		## (list)  Effective AI scale factors (rad/m/s^2)
+		self.alpha     = self.Phys.alphakU	## (list)  Raman chirp rates (rad/s^2)
+		self.TempScale = (0.5*np.pi**2/np.log(2))*self.MRb/(self.kBoltz*self.keff**2)*1.E12 ## (float) Conversion factor from peak FWHM to temperature (uK/kHz**2)
 
 	######### End of RunParameters.SetPhysicalConstants() ###########
 	#################################################################
@@ -288,6 +287,7 @@ class RunParameters:
 	def SetDetectCoeffs(self, DetectCoeffs):
 		"""Set detector coefficients."""
 
+		self.idCoeffs = np.array([0.,0.,0.])
 		if len(self.idList) == 1:
 			self.idCoeffs[self.idList[0]] = 1.
 		else:
@@ -323,6 +323,17 @@ class RunParameters:
 			logging.error('iXC_RunPars::GetRamanConfig::Axis Mode not recognized: {}'.format(self.AxisMode))
 			logging.error('iXC_RunPars::GetRamanConfig::Aborting...')
 			quit()
+
+		if self.SoftwareVersion >= 3.4:
+			self.kUpFrequency   = self.RamankUFreq[self.iaxList[0]]
+			self.kDownFrequency = self.RamankDFreq[self.iaxList[0]]
+			self.kUpChirpRate   = self.RamankUChirp[self.iaxList[0]]
+			self.kDownChirpRate = self.RamankDChirp[self.iaxList[0]]
+		else:
+			self.RamankUFreq[self.iaxList[0]]  = self.kUpFrequency
+			self.RamankDFreq[self.iaxList[0]]  = self.kDownFrequency
+			self.RamankUChirp[self.iaxList[0]] = self.kUpChirpRate
+			self.RamankDChirp[self.iaxList[0]] = self.kDownChirpRate
 
 		if self.DataType == 'Ramsey':
 			self.ikList = [0]
@@ -386,7 +397,6 @@ class RunParameters:
 				[r'Z-$k_U$',r'Z-$k_D$',r'Z-$k_{\rm ind}$',r'Z-$k_{\rm dep}$']]
 			self.PostFileNames  = [[self.FilePrefix+'-Run{:02d}-Ratios'.format(self.Run)+'-'+self.AxisFileLabels[iax][ik]+'.txt' for ik in range(2)] for iax in range(3)]
 			self.PostFilePaths  = [[os.path.join(self.PostFolderPath, self.PostFileNames[iax][ik]) for ik in range(2)] for iax in range(3)]
-
 
 	############## End of RunParameters.SetFilePaths() ##############
 	#################################################################
@@ -496,14 +506,14 @@ class RunParameters:
 				hRatios = [hRatio for sub in hRatios for hRatio in sub] ## Flatten list
 				if ProcessLevel < 2 and iRun == 0:
 					## Create a single figure, with one column and two rows for each Raman axis (fit + residual)
-					nCols = 1
-					fig, axs = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*7,nax*4), sharex='col', constrained_layout=True, gridspec_kw={'height_ratios': hRatios})
-					FigAxs   = [[[axs[r] for r in range(2*iax,2*iax+2)] for iax in range(nax)]]
+					nCols  = 1
+					axs    = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*7,nax*3.), sharex='col', constrained_layout=True, gridspec_kw={'height_ratios': hRatios})[1]
+					FigAxs = [[[axs[r] for r in range(2*iax,2*iax+2)] for iax in range(nax)]]
 				elif ProcessLevel == 2 and iRun == 0:
 					## Create a single figure, with two columns and two rows for each Raman axis (fit + residual)
-					nCols    = 2
-					fig, axs = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*7,nax*4), sharex='col', sharey='row', constrained_layout=True, gridspec_kw={'height_ratios': hRatios})
-					FigAxs   = [
+					nCols  = 2
+					axs    = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*7,nax*3.), sharex='col', sharey='row', constrained_layout=True, gridspec_kw={'height_ratios': hRatios})[1]
+					FigAxs = [
 						[[axs[r,0] for r in range(2*iax,2*iax+2)] for iax in range(nax)], 
 						[[axs[r,1] for r in range(2*iax,2*iax+2)] for iax in range(nax)]] 
 				else:
@@ -512,14 +522,14 @@ class RunParameters:
 				nRows = 2
 				if ProcessLevel < 2:
 					## A new figure is created on each iteration for all Raman axes, with one column (raw or post) and two rows (fit + residuals)
-					nCols    = 1
-					fig, axs = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*7,4), sharex='col', constrained_layout=True, gridspec_kw={'height_ratios': [1,3]})
-					FigAxs   = [[[axs[0], axs[1]]]]
+					nCols  = 1
+					axs    = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*7,3.), sharex='col', constrained_layout=True, gridspec_kw={'height_ratios': [1,3]})[1]
+					FigAxs = [[[axs[0], axs[1]]]]
 				else:
 					## A new figure is created on each iteration for all Raman axes, with two columns (raw + post) and two rows (fit + residuals)
-					nCols    = 2
-					fig, axs = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*6,4), sharex='col', sharey='row', constrained_layout=True, gridspec_kw={'height_ratios': [1,3]})
-					FigAxs   = [[[axs[0,0], axs[1,0]]], [[axs[0,1], axs[1,1]]]]
+					nCols  = 2
+					axs    = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*7,3.), sharex='col', sharey='row', constrained_layout=True, gridspec_kw={'height_ratios': [1,3]})[1]
+					FigAxs = [[[axs[0,0], axs[1,0]]], [[axs[0,1], axs[1,1]]]]
 		else:
 			FigAxs = FigAxsIn
 

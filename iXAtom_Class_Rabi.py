@@ -2,18 +2,8 @@
 ## Filename:	iXAtom_Class_Rabi.py
 ## Author:		B. Barrett
 ## Description: Rabi class definition for iXAtom analysis package
-## Version:		3.2.4
+## Version:		3.2.5
 ## Last Mod:	03/07/2020
-##===================================================================
-## Change Log:
-## 03/02/2020 - Rabi class defined based on Rabi class. Basic plotting
-##				functionality only.
-## 23/02/2020 - Implemented working fit function for Rabi class
-##				(valid for pulse-duration-type Rabi oscillations only).
-##			  - Completed methods for Rabi Analysis Levels 2 and 3.
-## 03/07/2020 - Added capability to analyze N2, NTotal and Ratio data in Rabi
-##				analysis. In the future, this feature could be made a general
-##				option for all analysis types.
 #####################################################################
 
 import copy
@@ -25,7 +15,8 @@ import numpy as np
 import os
 import pandas as pd
 import pytz
-from   scipy.special import erf, erfc
+from   scipy.special   import erf, erfc
+from   scipy.integrate import quad, dblquad, nquad
 
 import iXAtom_Utilities 		  as iXUtils
 import iXAtom_Class_RunParameters as iXC_RunPars
@@ -81,7 +72,7 @@ class Rabi(iXC_RunPars.RunParameters):
 		# self.Fit_method    = 'lm' ## 'lm': Levenberg-Marquardt, 'trf': Trust Region Reflective, 'dogbox': dogleg algorithm with rectangular trust regions
 		self.Fit_ftol      = 1.E-5
 		self.Fit_xtol      = 1.E-5
-		self.Fit_maxfev    = 20000
+		self.Fit_max_nfev  = 20000
 
 		self.nFitPars      = len(self.RabiOptions['FitParameters'][0].valuesdict().keys())
 
@@ -151,12 +142,64 @@ class Rabi(iXC_RunPars.RunParameters):
 	#################################################################
 
 	@staticmethod
-	def fRabi(x, Omega, xOffset, yOffset, Amplitude, alpha, beta, gamma):
-		"""Fit model for Rabi oscillations."""
+	def fRabi_Phenom(x, Omega, xOffset, yOffset, Amplitude, alpha, beta, gammaA):
+		"""Phenomenological fit model for Rabi oscillations vs pulse length."""
 
-		return yOffset + alpha*np.tanh(beta*(x-xOffset)) + Amplitude*np.exp(-gamma*(x-xOffset))*np.sin(0.5*abs(Omega)*(x-xOffset))**2
+		return yOffset + alpha*np.tanh(beta*x) + Amplitude*np.exp(-gammaA*x)*np.sin(0.5*abs(Omega)*(x-xOffset))**2
 
-	##################### End of Rabi.fRabi() #######################
+	################# End of Rabi.fRabi_Phenom() ####################
+	#################################################################
+
+	@staticmethod
+	def fRabi_Theory(x, Omega, xOffset, yOffset, Amplitude, alpha, gammaA, gammaB, sigmaV, vOffset):
+		"""Theoretical fit model for Rabi oscillations including velocity averaging.
+		ARGUMENTS:
+		\t x         (float) - Independent variable: Raman pulse duration (us)
+		\t Omega     (float) - Fit parameter: Effective Rabi frequency (rad/us)
+		\t xOffset   (float) - Fit parameter: Offset from x = 0 (us)
+		\t yOffset   (float) - Fit parameter: Offset from y = 0 (arb. units)
+		\t Amplitude (float) - Fit parameter: Amplitude of Rabi oscillations (arb. units)
+		\t alpha 	 (float) - Fit parameter: Steady-state value due to spontaneous emission (arb. units)
+		\t gammaA 	 (float) - Fit parameter: Exponential decay rate of stimulated emission (1/us)
+		\t gammaB 	 (float) - Fit parameter: Exponential decay rate of spontaneous emission (1/us)
+		\t sigmaV    (float) - Fit parameter: Width of velocity distribution (m/s)
+		\t vOffset   (float) - Fit parameter: Center of velocity distribution (m/s)
+		"""
+
+		keff  = 1.610577E7		## rad/m
+		sigv  = sigmaV*1.E-6	## m/us
+		v0    = vOffset*1.E-6	## m/us
+		vL    = -4.*sigv		## m/us
+		vR    = +4.*sigv		## m/us
+
+		# w     = 0.010			## m
+		# sigr  = sigmaR		## m
+		# rL    = -4.*sigr		## m
+		# rR    = +4.*sigr 		## m
+
+		omega = lambda v: np.sqrt(Omega**2 + (keff*(v-v0))**2)
+		N     = lambda v: 1./(np.sqrt(np.pi)*sigv)*np.exp(-(v/sigv)**2)
+		dPv   = lambda v, tau: N(v)*(Omega/omega(v)*np.sin(0.5*omega(v)*(tau-xOffset)))**2
+
+		# Rabi0 = lambda r: Omega*np.exp(-2*(r/w)**2)
+		# RabiG = lambda r, v: np.sqrt(Rabi0(r)**2 + (keff*(v-v0))**2)
+		# N     = lambda r, v: 1./(np.pi*sigv*sigr)*np.exp(-(r/sigr)**2 - (v/sigv)**2)
+		# dP    = lambda tau: (Rabi0(0)/RabiG(0,0)*np.sin(0.5*RabiG(0,0)*(tau-xOffset)))**2
+		# dPr   = lambda r, tau: N(r,0)*(Rabi0(r)/RabiG(r,0)*np.sin(0.5*RabiG(r,0)*(tau-xOffset)))**2*(np.sqrt(np.pi)*sigv)
+		# dPv   = lambda v, tau: N(0,v)*(Rabi0(0)/RabiG(0,v)*np.sin(0.5*RabiG(0,v)*(tau-xOffset)))**2*(np.sqrt(np.pi)*sigr)
+		# dPrv  = lambda r, v, tau: N(r,v)*(Rabi0(r)/RabiG(r,v)*np.sin(0.5*RabiG(r,v)*(tau-xOffset)))**2
+
+		n = len(x)
+		P = np.zeros(n)
+		for i in range(n):
+			# P[i] = dP(x[i])
+			# P[i] = quad(dPr, rL, rR, args=(x[i]), epsabs=1.e-03, epsrel=1.e-03)[0]
+			# P[i] = nquad(dPrv, [[rL, rR], [vL, vR]], args=([x[i]]), opts={'epsabs': 1.e-03, 'epsrel': 1.e-03})[0]
+			P[i] = quad(dPv, vL, vR, args=(x[i]), epsabs=1.e-03, epsrel=1.e-03, limit=100)[0]
+
+		return yOffset + Amplitude*P*np.exp(-gammaA*x) + alpha*(1 - np.exp(-gammaB*x))
+
+	################## End of Rabi.fRabi_Theory() ###################
 	#################################################################
 
 	@staticmethod
@@ -198,7 +241,27 @@ class Rabi(iXC_RunPars.RunParameters):
 
 		pInit = self.RabiOptions['FitParameters'][iax].copy()
 
-		if self.ScanQuantity == 'Detection TOF (ms)':
+		if self.RabiOptions['FitFunction'] == 'Rabi_Phenom':
+			model = lm.Model(self.fRabi_Phenom)
+			model.set_param_hint('Omega',     value=pInit['Omega'].value,     min=pInit['Omega'].min,     vary=pInit['Omega'].vary)
+			model.set_param_hint('xOffset',   value=pInit['xOffset'].value,   min=pInit['xOffset'].min,   vary=pInit['xOffset'].vary)
+			model.set_param_hint('yOffset',   value=pInit['yOffset'].value,   min=pInit['yOffset'].min,   vary=pInit['yOffset'].vary)
+			model.set_param_hint('Amplitude', value=pInit['Amplitude'].value, min=pInit['Amplitude'].min, vary=pInit['Amplitude'].vary)
+			model.set_param_hint('alpha',     value=pInit['alpha'].value,     min=pInit['alpha'].min,     vary=pInit['alpha'].vary)
+			model.set_param_hint('beta',      value=pInit['beta'].value,      min=pInit['beta'].min,      vary=pInit['beta'].vary)
+			model.set_param_hint('gammaA',    value=pInit['gammaA'].value,    min=pInit['gammaA'].min,    vary=pInit['gammaA'].vary)
+		elif self.RabiOptions['FitFunction'] == 'Rabi_Theory':
+			model = lm.Model(self.fRabi_Theory)
+			model.set_param_hint('Omega',     value=pInit['Omega'].value,     min=pInit['Omega'].min,     vary=pInit['Omega'].vary)
+			model.set_param_hint('xOffset',   value=pInit['xOffset'].value,   min=pInit['xOffset'].min,   vary=pInit['xOffset'].vary)
+			model.set_param_hint('yOffset',   value=pInit['yOffset'].value,   min=pInit['yOffset'].min,   vary=pInit['yOffset'].vary)
+			model.set_param_hint('Amplitude', value=pInit['Amplitude'].value, min=pInit['Amplitude'].min, vary=pInit['Amplitude'].vary)
+			model.set_param_hint('alpha',     value=pInit['alpha'].value,     min=pInit['alpha'].min,     vary=pInit['alpha'].vary)
+			model.set_param_hint('gammaA',    value=pInit['gammaA'].value,    min=pInit['gammaA'].min,    vary=pInit['gammaA'].vary)
+			model.set_param_hint('gammaB',    value=pInit['gammaB'].value,    min=pInit['gammaB'].min,    vary=pInit['gammaB'].vary)
+			model.set_param_hint('sigmaV',    value=pInit['sigmaV'].value,    min=pInit['sigmaV'].min,    vary=pInit['sigmaV'].vary,   max=pInit['sigmaV'].max)
+			model.set_param_hint('vOffset',   value=pInit['vOffset'].value,   min=pInit['vOffset'].min,   vary=pInit['vOffset'].vary)
+		else: ## self.RabiOptions['FitFunction'] == 'DetectProfile'
 			model = lm.Model(self.fDetect)
 			model.set_param_hint('xOffset',   value=pInit['xOffset'].value,   min=pInit['xOffset'].min,   vary=pInit['xOffset'].vary)
 			model.set_param_hint('yOffset',   value=pInit['yOffset'].value,   min=pInit['yOffset'].min,   vary=pInit['yOffset'].vary)
@@ -207,15 +270,6 @@ class Rabi(iXC_RunPars.RunParameters):
 			model.set_param_hint('rDetect',   value=pInit['rDetect'].value,   min=pInit['rDetect'].min,   vary=pInit['rDetect'].vary)
 			model.set_param_hint('sigmaR',    value=pInit['sigmaR'].value,    min=pInit['sigmaR'].min,    vary=pInit['sigmaR'].vary)
 			model.set_param_hint('sigmaV',    value=pInit['sigmaV'].value,    min=pInit['sigmaV'].min,    vary=pInit['sigmaV'].vary)
-		else:
-			model = lm.Model(self.fRabi)
-			model.set_param_hint('Omega',     value=pInit['Omega'].value,     min=pInit['Omega'].min,     vary=pInit['Omega'].vary)
-			model.set_param_hint('xOffset',   value=pInit['xOffset'].value,   min=pInit['xOffset'].min,   vary=pInit['xOffset'].vary)
-			model.set_param_hint('yOffset',   value=pInit['yOffset'].value,   min=pInit['yOffset'].min,   vary=pInit['yOffset'].vary)
-			model.set_param_hint('Amplitude', value=pInit['Amplitude'].value, min=pInit['Amplitude'].min, vary=pInit['Amplitude'].vary)
-			model.set_param_hint('alpha',     value=pInit['alpha'].value,     min=pInit['alpha'].min,     vary=pInit['alpha'].vary)
-			model.set_param_hint('beta',      value=pInit['beta'].value,      min=pInit['beta'].min,      vary=pInit['beta'].vary)
-			model.set_param_hint('gamma',     value=pInit['gamma'].value,     min=pInit['gamma'].min,     vary=pInit['gamma'].vary)
 
 		return model
 
@@ -235,8 +289,8 @@ class Rabi(iXC_RunPars.RunParameters):
 		else:
 			weights = np.ones(len(yErr))
 
-		fit_kws = {'xtol': self.Fit_xtol, 'ftol': self.Fit_ftol, 'maxfev': self.Fit_maxfev} 
-		result  = self.FitModel.fit(yData, self.FitPars, x=xData, weights=weights, method='leastsq', fit_kws=fit_kws)
+		fit_kws = {'xtol': self.Fit_xtol, 'ftol': self.Fit_ftol} 
+		result  = self.FitModel.fit(yData, self.FitPars, x=xData, weights=weights, method='leastsq', max_nfev=self.Fit_max_nfev, fit_kws=fit_kws)
 
 		## Note that result.residual is divided by the errors
 		# yRes    = result.residual
@@ -294,16 +348,34 @@ class Rabi(iXC_RunPars.RunParameters):
 
 		Pars.add_many(resdev, chisqr, redchi, SNR)
 
-		if self.ScanQuantity != 'Detection TOF (ms)':
+		if self.RabiOptions['FitFunction'][:4] == 'Rabi':
 			omega = Result.params['Omega']
-			x0    = Result.params['Offset']
-			taupi = lm.Parameter('taupi', value=np.pi/abs(omega.value) + x0.value)
-			taupi.init_value = np.pi/omega.init_value
-			try:
-				taupi.stderr = np.sqrt((np.pi/omega.value**2*omega.stderr)**2 + (x0.stderr/x0.value)**2)
-			except:
-				taupi.stderr = 0.
+			x0    = Result.params['xOffset']
+			if self.RabiOptions['FitFunction'] == 'Rabi_Phenom':
+				taupi = lm.Parameter('taupi', value = 0.)
+				try:
+					taupi.init_value = np.pi/abs(omega.init_value)# + x0.init_value
+					taupi.value = np.pi/abs(omega.value)# + x0.value
+				except:
+					taupi.init_value = np.inf
+					taupi.value = np.inf
+				try:
+					taupi.stderr = np.sqrt((np.pi/omega.value**2*omega.stderr)**2)# + x0.stderr**2)
+				except:
+					taupi.stderr = 0.
 
+			elif self.RabiOptions['FitFunction'] == 'Rabi_Theory':
+				v0    = Result.params['vOffset']
+				keff  = self.keff*1.E-6
+				rabi_val  = np.sqrt(omega.value**2 + (keff*v0.value)**2)
+				rabi_init = np.sqrt(omega.init_value**2 + (keff*v0.init_value)**2)
+				taupi = lm.Parameter('taupi', value=np.pi/rabi_val)# + x0.value)
+				taupi.init_value = np.pi/rabi_init# + x0.init_value
+				try:
+					drabi = np.sqrt((omega.value*omega.stderr)**2)/rabi_val# + (keff*v0.value*v0.stderr)**2)/rabi_val
+					taupi.stderr = np.sqrt((np.pi/rabi_val**2*drabi)**2)# + (x0.stderr)**2)
+				except:
+					taupi.stderr = 0.
 			Pars.add(taupi)
 
 		return Pars
@@ -341,10 +413,8 @@ class Rabi(iXC_RunPars.RunParameters):
 
 		if self.RawData:
 			label = 'raw'
-			dfList = self.RawDataDF
 		else:
 			label = 'post-processed'
-			dfList = self.PostDataDF
 
 		logging.info('iXC_Rabi::Analyzing {} Rabi data for {}...'.format(label, self.RunString))
 
@@ -370,7 +440,7 @@ class Rabi(iXC_RunPars.RunParameters):
 						xData  = np.delete(xData, self.Outliers[iax])
 						yData  = np.delete(yData, self.Outliers[iax])
 						yErr   = np.delete(yErr,  self.Outliers[iax])
-						[result, yRes, sRes, dsRes] = self.FitRabiData(iax, xData, yData, yErr)
+						[result, yRes, sRes, dsRes] = self.FitRabiData(xData, yData, yErr)
 
 				if self.RawData:
 					self.RawFitResult[iax]  = result
@@ -504,10 +574,8 @@ class Rabi(iXC_RunPars.RunParameters):
 
 		if self.RawData:
 			label = 'raw'
-			dfList = self.RawDataDF
 		else:
 			label = 'post-processed'
-			dfList = self.PostDataDF
 
 		logging.info('iXC_Rabi::Plotting {} Rabi data for {}...'.format(label, self.RunString))
 
@@ -908,32 +976,40 @@ def RabiAnalysisLevel2(AnalysisCtrl, RabiOpts, PlotOpts):
 		Rab.RabiOptions['FitParameters'] = runFitPars
 		Rab.LoadAndAnalyzeRabiData(RabiAxs, iRun, nRuns, PlotOpts, AnalysisCtrl['ProcessLevel'])
 
-		if RabiOpts['TrackRunFitPars'] and iRun < nRuns-1:
+		if RabiOpts['TrackRunFitPars'] and RabiOpts['FitFunction'][:4] == 'Rabi' and iRun < nRuns-1:
 			for iax in Rab.iaxList:
 				if Rab.RawData:
 					valDict = Rab.RawFitDict[iax]['Best']
 				else:
 					valDict = Rab.PostFitDict[iax]['Best']
 
-					Omegas[iax,iRun] = abs(valDict['Omega'])
+				Omegas[iax,iRun] = abs(valDict['Omega'])
 
-					if iRun == 0:
-						nextOmega = Omegas[iax,iRun]
-					elif iRun >= 1:
-						if runVarList[iRun] != runVarList[iRun-1]:
-							slope = (Omegas[iax,iRun] - Omegas[iax,iRun-1])/(runVarList[iRun] - runVarList[iRun-1])
-						else:
-							slope = 0.
-						nextOmega = Omegas[iax,iRun] + slope*(runVarList[iRun+1] - runVarList[iRun])
-	
-					## Update initial fit parameters for next iteration
-					runFitPars[iax]['Omega'].value     = nextOmega
-					runFitPars[iax]['xOffset'].value   = valDict['xOffset']
-					runFitPars[iax]['yOffset'].value   = valDict['yOffset']
-					runFitPars[iax]['Amplitude'].value = valDict['Amplitude']
-					runFitPars[iax]['alpha'].value     = valDict['alpha']
-					runFitPars[iax]['beta'].value      = valDict['beta']
-					runFitPars[iax]['gamma'].value     = valDict['gamma']
+				if iRun == 0:
+					nextOmega = Omegas[iax,iRun]
+				elif iRun >= 1:
+					if runVarList[iRun] != runVarList[iRun-1]:
+						slope = (Omegas[iax,iRun] - Omegas[iax,iRun-1])/(runVarList[iRun] - runVarList[iRun-1])
+					else:
+						slope = 0.
+					nextOmega = Omegas[iax,iRun] + slope*(runVarList[iRun+1] - runVarList[iRun])
+
+				## Update initial fit parameters for next iteration
+				runFitPars[iax]['Omega'].value     = nextOmega
+				runFitPars[iax]['xOffset'].value   = valDict['xOffset']
+				runFitPars[iax]['yOffset'].value   = valDict['yOffset']
+				runFitPars[iax]['Amplitude'].value = valDict['Amplitude']
+				runFitPars[iax]['alpha'].value     = valDict['alpha']
+				runFitPars[iax]['gammaA'].value    = valDict['gammaA']
+
+				if RabiOpts['FitFunction'] == 'Rabi_Phenom':
+					## Parameters specific to 'Rabi_Phenom' fit function
+					runFitPars[iax]['beta'].value    = valDict['beta']
+				else:
+					## Parameters specific to 'Rabi_Theory' fit function
+					runFitPars[iax]['gammaB'].value  = valDict['gammaB']
+					runFitPars[iax]['sigmaV'].value  = valDict['sigmaV']
+					runFitPars[iax]['vOffset'].value = valDict['vOffset']
 
 ################### End of RabiAnalysisLevel2() #####################
 #####################################################################
@@ -962,14 +1038,17 @@ def RabiAnalysisLevel3(AnalysisCtrl, RabiOpts, PlotOpts, RunPars):
 	amp    = np.zeros((3,2,nRuns))		 	 ## [iax,(0,1=BestFit,FitErr),iRun]
 	alpha  = np.zeros((3,2,nRuns))		 	 ## [iax,(0,1=BestFit,FitErr),iRun]
 	beta   = np.zeros((3,2,nRuns))		 	 ## [iax,(0,1=BestFit,FitErr),iRun]
-	gamma  = np.zeros((3,2,nRuns))		 	 ## [iax,(0,1=BestFit,FitErr),iRun]
+	gammaA = np.zeros((3,2,nRuns))		 	 ## [iax,(0,1=BestFit,FitErr),iRun]
+	gammaB = np.zeros((3,2,nRuns))		 	 ## [iax,(0,1=BestFit,FitErr),iRun]
+	sigmaV = np.zeros((3,2,nRuns))		 	 ## [iax,(0,1=BestFit,FitErr),iRun]
+	v0     = np.zeros((3,2,nRuns))		 	 ## [iax,(0,1=BestFit,FitErr),iRun]
 	SNR    = np.zeros((3,2,nRuns))		 	 ## [iax,(0,1=BestFit,FitErr),iRun]
 
 	SummaryDF = [pd.DataFrame([]) for iax in range(3)]
 
 	(nRows, nCols) = (2,3)
 
-	Fig, Axs = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*4,nRows*3), sharex=True, constrained_layout=True)
+	Axs = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*4,nRows*3), sharex=True, constrained_layout=True)[1]
 
 	iRun = -1
 	for RunNum in RunList:
@@ -999,24 +1078,33 @@ def RabiAnalysisLevel3(AnalysisCtrl, RabiOpts, PlotOpts, RunPars):
 			fitList = getattr(Rab, 'PostFitDict')
 
 		for iax in Rab.iaxList:
-			Omega[iax,0,iRun] = abs(fitList[iax]['Best']['Omega'])
-			Omega[iax,1,iRun] = fitList[iax]['Error']['Omega']
-			taupi[iax,0,iRun] = fitList[iax]['Best' ]['taupi']
-			taupi[iax,1,iRun] = fitList[iax]['Error']['taupi']
-			x0[iax,0,iRun]    = fitList[iax]['Best' ]['xOffset']
-			x0[iax,1,iRun]    = fitList[iax]['Error']['xOffset']
-			y0[iax,0,iRun]    = fitList[iax]['Best' ]['yOffset']
-			y0[iax,1,iRun]    = fitList[iax]['Error']['yOffset']
-			amp[iax,0,iRun]   = fitList[iax]['Best' ]['Amplitude']
-			amp[iax,1,iRun]   = fitList[iax]['Error']['Amplitude']
-			alpha[iax,0,iRun] = fitList[iax]['Best' ]['alpha']
-			alpha[iax,1,iRun] = fitList[iax]['Error']['alpha']
-			beta[iax,0,iRun]  = fitList[iax]['Best' ]['beta']
-			beta[iax,1,iRun]  = fitList[iax]['Error']['beta']
-			gamma[iax,0,iRun] = fitList[iax]['Best' ]['gamma']
-			gamma[iax,1,iRun] = fitList[iax]['Error']['gamma']
-			SNR[iax,0,iRun]   = fitList[iax]['Best' ]['SNR']
-			SNR[iax,1,iRun]   = fitList[iax]['Error']['SNR']
+			Omega[iax,0,iRun]  = fitList[iax]['Best' ]['Omega']
+			Omega[iax,1,iRun]  = fitList[iax]['Error']['Omega']
+			taupi[iax,0,iRun]  = fitList[iax]['Best' ]['taupi']
+			taupi[iax,1,iRun]  = fitList[iax]['Error']['taupi']
+			x0[iax,0,iRun]     = fitList[iax]['Best' ]['xOffset']
+			x0[iax,1,iRun]     = fitList[iax]['Error']['xOffset']
+			y0[iax,0,iRun]     = fitList[iax]['Best' ]['yOffset']
+			y0[iax,1,iRun]     = fitList[iax]['Error']['yOffset']
+			amp[iax,0,iRun]    = fitList[iax]['Best' ]['Amplitude']
+			amp[iax,1,iRun]    = fitList[iax]['Error']['Amplitude']
+			alpha[iax,0,iRun]  = fitList[iax]['Best' ]['alpha']
+			alpha[iax,1,iRun]  = fitList[iax]['Error']['alpha']
+			gammaA[iax,0,iRun] = fitList[iax]['Best' ]['gammaA']
+			gammaA[iax,1,iRun] = fitList[iax]['Error']['gammaA']
+			SNR[iax,0,iRun]    = fitList[iax]['Best' ]['SNR']
+			SNR[iax,1,iRun]    = fitList[iax]['Error']['SNR']
+
+			if RabiOpts['FitFunction'] == 'Rabi_Phenom':
+				beta[iax,0,iRun]  = fitList[iax]['Best' ]['beta']
+				beta[iax,1,iRun]  = fitList[iax]['Error']['beta']
+			else:
+				gammaB[iax,0,iRun] = fitList[iax]['Best' ]['gammaB']
+				gammaB[iax,1,iRun] = fitList[iax]['Error']['gammaB']
+				sigmaV[iax,0,iRun] = fitList[iax]['Best' ]['sigmaV']
+				sigmaV[iax,1,iRun] = fitList[iax]['Error']['sigmaV']
+				v0[iax,0,iRun]     = fitList[iax]['Best' ]['vOffset']
+				v0[iax,1,iRun]     = fitList[iax]['Error']['vOffset']
 
 	for iax in Rab.iaxList:
 		d = {'Run': RunList, 'RunTime': tRun, RabiOpts['RunPlotVariable']: x,
@@ -1027,7 +1115,10 @@ def RabiAnalysisLevel3(AnalysisCtrl, RabiOpts, PlotOpts, RunPars):
 			'amp': amp[iax,0], 'amp_Err': amp[iax,1], 
 			'alpha': alpha[iax,0], 'alpha_Err': alpha[iax,1], 
 			'beta': beta[iax,0], 'beta_Err': beta[iax,1], 
-			'gamma': gamma[iax,0], 'gamma_Err': gamma[iax,1], 
+			'gammaA': gammaA[iax,0], 'gammaA_Err': gammaA[iax,1], 
+			'gammaB': gammaB[iax,0], 'gammaB_Err': gammaB[iax,1], 
+			'sigmaV': sigmaV[iax,0], 'sigmaV_Err': sigmaV[iax,1], 
+			'vOffset': v0[iax,0], 'vOffset_Err': v0[iax,1], 
 			'SNR': SNR[iax,0], 'SNR_Err': SNR[iax,1]}
 		SummaryDF[iax] = pd.DataFrame(data=d)
 
@@ -1050,6 +1141,10 @@ def RabiAnalysisLevel3(AnalysisCtrl, RabiOpts, PlotOpts, RunPars):
 			t0 = dt.datetime.fromtimestamp(x[0], tz=pytz.timezone('Europe/Paris'))
 			x  = (x - x[0])/60.
 			xLabel = 'Run Time - {}  (min)'.format(t0.strftime('%H:%M:%S'))
+		elif RabiOpts['RunPlotVariable'] == 'MOTLoading':
+			## Special operations for MOTLoading
+			x *= 1.0E3
+			xLabel = 'MOT Loading Time  (ms)'
 		else:
 			xLabel = RabiOpts['RunPlotVariable']
 
@@ -1073,14 +1168,31 @@ def RabiAnalysisLevel3(AnalysisCtrl, RabiOpts, PlotOpts, RunPars):
 			# customPlotOpts['yLabel'] = 'SNR'
 			# iXUtils.CustomPlot(Axs[1][0], customPlotOpts, x, SNR[iax,0], SNR[iax,1])
 
-			customPlotOpts['yLabel'] = r'$\alpha$'
-			iXUtils.CustomPlot(Axs[1][0], customPlotOpts, x, alpha[iax,0], alpha[iax,1])
+			if RabiOpts['FitFunction'] == 'Rabi_Phenom':
+				customPlotOpts['yLabel'] = r'$\alpha$'
+				iXUtils.CustomPlot(Axs[1][0], customPlotOpts, x, alpha[iax,0], alpha[iax,1])
 
-			customPlotOpts['yLabel'] = r'$\beta$ ($\mu$s$^{-1}$)'
-			iXUtils.CustomPlot(Axs[1][1], customPlotOpts, x, beta[iax,0], beta[iax,1])
+				customPlotOpts['yLabel'] = r'$\beta$ ($\mu$s$^{-1}$)'
+				iXUtils.CustomPlot(Axs[1][1], customPlotOpts, x, beta[iax,0], beta[iax,1])
 
-			customPlotOpts['yLabel'] = r'$\gamma$ ($\mu$s$^{-1}$)'
-			iXUtils.CustomPlot(Axs[1][2], customPlotOpts, x, gamma[iax,0], gamma[iax,1])
+				customPlotOpts['yLabel'] = r'$\gamma_A$ ($\mu$s$^{-1}$)'
+				iXUtils.CustomPlot(Axs[1][2], customPlotOpts, x, gammaA[iax,0], gammaA[iax,1])
+			else:
+				customPlotOpts['yLabel'] = r'$\alpha$'
+				iXUtils.CustomPlot(Axs[1][0], customPlotOpts, x, alpha[iax,0], alpha[iax,1])
+
+				customPlotOpts['yLabel'] = r'$\sigma_v$, $v_0$  (m/s)'
+				iXUtils.CustomPlot(Axs[1][1], customPlotOpts, x, sigmaV[iax,0], sigmaV[iax,1])
+
+				customPlotOpts['Color'] = Rab.DefaultPlotColors[iax][1]
+				iXUtils.CustomPlot(Axs[1][1], customPlotOpts, x, v0[iax,0], v0[iax,1])
+
+				customPlotOpts['Color'] = Rab.DefaultPlotColors[iax][0]
+				customPlotOpts['yLabel'] = r'$\gamma_A, \gamma_B$ ($\mu$s$^{-1}$)'
+				iXUtils.CustomPlot(Axs[1][2], customPlotOpts, x, gammaA[iax,0], gammaA[iax,1])
+
+				customPlotOpts['Color'] = Rab.DefaultPlotColors[iax][1]
+				iXUtils.CustomPlot(Axs[1][2], customPlotOpts, x, gammaB[iax,0], gammaB[iax,1])
 
 	if PlotOpts['ShowPlotLegend']:
 		if PlotOpts['FixLegLocation']:
@@ -1154,7 +1266,7 @@ def RabiAnalysisLevel4(AnalysisCtrl, RabiOpts, PlotOpts, RunPars):
 	\t PlotOpts     (dict) - Copy of key:value pairs controlling plot options
 	\t RunPars    (object) - Instance of Run Parameters class for RunList[0]
 	"""
-
+	pass
 	# WorkDir = AnalysisCtrl['WorkDir']
 	# Folder  = AnalysisCtrl['Folder']
 	# RunList = AnalysisCtrl['RunList']
@@ -1242,7 +1354,7 @@ def RabiAnalysisLevel5(AnalysisCtrl, RabiOpts, PlotOpts, RunPars):
 	\t PlotOpts     (dict) - Copy of key:value pairs controlling plot options
 	\t RunPars    (object) - Instance of Run Parameters class for RunList[0]
 	"""
-
+	pass
 	# WorkDir = AnalysisCtrl['WorkDir']
 	# Folder  = AnalysisCtrl['Folder']
 	# RunList = AnalysisCtrl['RunList']

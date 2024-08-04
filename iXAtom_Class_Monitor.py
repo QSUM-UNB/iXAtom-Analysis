@@ -2,14 +2,8 @@
 ## Filename:	iXAtom_Class_Monitor.py
 ## Author:		B. Barrett
 ## Description: Monitor class definition for iXAtom analysis package
-## Version:		3.2.4
-## Last Mod:	03/02/2020
-##===================================================================
-## Change Log:
-## 30/01/2020 - Monitor class created. Initialization, data loading,
-##				conversion and plotting methods created based on 
-##				existing methods in Tracking class.
-## 03/02/2020 - Added MonitorOpts input dictionary.
+## Version:		3.2.5
+## Last Mod:	15/10/2020
 #####################################################################
 
 import copy
@@ -17,7 +11,6 @@ import csv
 import datetime as dt
 import glob
 import logging
-import matplotlib        as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -63,28 +56,56 @@ class Monitor(iXC_RunPars.RunParameters):
 		self.MonitorMeanDF     = [[pd.DataFrame() for ik in range(2)] for iax in range(3)]
 		self.MonitorSDevDF     = [[pd.DataFrame() for ik in range(2)] for iax in range(3)]
 
-		if self.SoftwareVersion <= 3.2:
+		if self.SoftwareVersion <= 3.1:
+			self.Monitors = ['TiltX', 'TiltY', 'MOTPowerX', 'MOTPowerY', 'MOTPowerZ', 
+				'RamanBX', 'RamanBY', 'RamanBZ', 'MOTLevel', 'TempChamber', 'NTotalRaw', 'NTotalBG']
+			self.Temp_Key    = 'TempChamber'
+			self.MOTPX_Key   = 'MOTPowerX'
+			self.MOTPY_Key   = 'MOTPowerY'
+			self.MOTPZ_Key   = 'MOTPowerZ'
+			self.MOTPMon_Key = 'None'
+			self.MOTFlu_Key  = 'MOTLevel'
+			self.RamanBX_Key = 'RamanBX'
+			self.RamanBY_Key = 'RamanBY'
+			self.RamanBZ_Key = 'RamanBZ'
+			self.RamanBT_Key = 'RamanBT'
+		elif self.SoftwareVersion == 3.2:
 			self.Monitors = ['TiltX', 'TiltY', 'MOTPowerX', 'MOTPowerY', 'MOTPowerZ', 'MOTMonitor', 
 				'MOTFluores', 'RamanBX', 'RamanBY', 'RamanBZ', 'TempChamber', 'NTotalRaw', 'NTotalBG']
 			self.Temp_Key    = 'TempChamber'
 			self.MOTPX_Key   = 'MOTPowerX'
 			self.MOTPY_Key   = 'MOTPowerY'
 			self.MOTPZ_Key   = 'MOTPowerZ'
-			self.MOTPT_Key   = 'MOTMonitor'
+			self.MOTPMon_Key = 'MOTMonitor'
+			self.MOTFlu_Key  = 'MOTFluores'
 			self.RamanBX_Key = 'RamanBX'
 			self.RamanBY_Key = 'RamanBY'
 			self.RamanBZ_Key = 'RamanBZ'
 			self.RamanBT_Key = 'RamanBT'
-		else:
-			self.Monitors = ['MOTMeanPX', 'MOTMeanPY', 'MOTMeanPZ', 'MOTMeanPT', 'MOTMeanBX', 'MOTMeanBY', 
-				'MOTMeanBZ', 'RamanMeanPX', 'RamanMeanPY', 'RamanMeanPZ', 'RamanDeltaPX', 'RamanDeltaPY',
-				'RamanDeltaPZ', 'RamanMeanBX', 'RamanMeanBY', 'RamanMeanBZ', 'RamanDeltaBX', 'RamanDeltaBY',
-				'RamanDeltaBZ', 'TiltX', 'TiltY', 'LCRErrorZ', 'Temperature', 'NTotalRaw', 'NTotalBG']
+		elif self.SoftwareVersion == 3.3:
+			self.Monitors = ['MOTMeanPX', 'MOTMeanPY', 'MOTMeanPZ', 'MOTMeanPT', 'MOTMeanBX', 'MOTMeanBY', 'MOTMeanBZ',
+				'RamanMeanPX', 'RamanMeanPY', 'RamanMeanPZ', 'RamanDeltaPX', 'RamanDeltaPY', 'RamanDeltaPZ',
+				'RamanMeanBX', 'RamanMeanBY', 'RamanMeanBZ', 'RamanDeltaBX', 'RamanDeltaBY', 'RamanDeltaBZ',
+				'TiltX', 'TiltY', 'LCRErrorZ', 'Temperature', 'NTotalRaw', 'NTotalBG']
 			self.Temp_Key    = 'Temperature'
 			self.MOTPX_Key   = 'MOTMeanPX'
 			self.MOTPY_Key   = 'MOTMeanPY'
 			self.MOTPZ_Key   = 'MOTMeanPZ'
-			self.MOTPT_Key   = 'MOTMeanPT'
+			self.MOTPMon_Key = 'MOTMeanPT'
+			self.RamanBX_Key = 'RamanMeanBX'
+			self.RamanBY_Key = 'RamanMeanBY'
+			self.RamanBZ_Key = 'RamanMeanBZ'
+			self.RamanBT_Key = 'RamanMeanBT'
+		else: ## self.SoftwareVersion == 3.4:
+			self.Monitors = ['MOTMeanPX', 'MOTMeanPY', 'MOTMeanPZ', 'MOTMeanPT', 'MOTMeanBX', 'MOTMeanBY', 'MOTMeanBZ',
+				'RamanMeanPX', 'RamanMeanPY', 'RamanMeanPZ', 'RamanDeltaPX', 'RamanDeltaPY', 'RamanDeltaPZ',
+				'RamanMeanBX', 'RamanMeanBY', 'RamanMeanBZ', 'RamanDeltaBX', 'RamanDeltaBY', 'RamanDeltaBZ',
+				'TiltX', 'TiltY', 'TempLCRX', 'TempLCRY', 'TempLCRZ', 'TempChamber', 'NTotalRaw', 'NTotalBG']
+			self.Temp_Key    = 'TempChamber'
+			self.MOTPX_Key   = 'MOTMeanPX'
+			self.MOTPY_Key   = 'MOTMeanPY'
+			self.MOTPZ_Key   = 'MOTMeanPZ'
+			self.MOTPMon_Key = 'MOTMeanPT'
 			self.RamanBX_Key = 'RamanMeanBX'
 			self.RamanBY_Key = 'RamanMeanBY'
 			self.RamanBZ_Key = 'RamanMeanBZ'
@@ -127,7 +148,7 @@ class Monitor(iXC_RunPars.RunParameters):
 		iSkip  = self.nax*self.nk
 		iMid   = DF.shape[0] // 2
 		series = pd.Series({'Run': Run, 'Date': DF['Date'].iloc[iMid], 'Time': DF['Time'].iloc[iMid], 'DateTime': DF['DateTime'].iloc[iMid]})
-		cols   = DF.columns.values[4:]
+		cols   = DF.columns.values[3:]
 
 		iStart = -1
 		for iax in self.iaxList:
@@ -141,15 +162,16 @@ class Monitor(iXC_RunPars.RunParameters):
 	################ End of Monitor.GetMonitorMean() ################
 	#################################################################
 
-	def ProcessMonitorData(self, ComputeMovingAvg=False, WinTime=0):
+	def ProcessMonitorData(self):
 		"""Perform moving average on raw monitor data (if requested), and convert to physical units."""
 
 		colNames = list(self.MonitorDF.columns.values)
 		self.MonitorMask = [(self.Monitors[iMon] in colNames) for iMon in range(self.nMonitors)]
 
-		if ComputeMovingAvg:
-			winSize = max(int(round(WinTime/self.tStep)), 1)
-			logging.info('iXC_Monitor::Computing moving average for window size {} ({} s)...'.format(winSize, WinTime))
+		if self.MonitorOptions['ComputeMovingAvg']:
+			winTime = self.MonitorOptions['MovingAvgWindow']
+			winSize = max(int(round(winTime/self.tStep)), 1)
+			logging.info('iXC_Monitor::Computing moving average for window size {} ({} s)...'.format(winSize, winTime))
 			for iMon in range(self.nMonitors):
 				if self.MonitorMask[iMon]:
 					self.MonitorDF[self.Monitors[iMon]] = self.MonitorDF[self.Monitors[iMon]].rolling(winSize, center=True, min_periods=1).mean()
@@ -167,54 +189,85 @@ class Monitor(iXC_RunPars.RunParameters):
 	def ConvertMonitorData(self, DF, DFRef=None, SDev=False):
 		"""Convert certain monitor data columns to physical units."""
 
-		## Temperature conversion parameters
-		RS   = 9.1E3  # Ohm
-		RT0  = 10.E3  # Ohm
-		VIn  = 14.95  # V
-		T0   = 298.15 # K
-		beta = 3455   # K
+		## Chamber Temperature conversion parameters
+		RS   = 9.1E3  		# Ohm
+		RT0  = 10.E3  		# Ohm
+		VIn  = 14.95  		# V
+		T0   = 298.15 		# K
+		beta = 3455   		# K
+
+		## LCR Temperature conversion parameters
+		IBias = 1.0E-4 		# A
+
+		## Tilt conversion parameters
+		TiltOffset = 2.5 	# V
+		TiltScale  = 0.5 	# rad/V
+
+		## B-Field conversion parameters
+		BScale = 0.5 		# Gauss/V
 
 		if SDev:
 			## Create new column for background subtracted NTotal
 			DF['NTotal'] = np.sqrt(DF['NTotalRaw'].to_numpy()**2 + DF['NTotalBG'].to_numpy()**2)
-			DF['TiltX']  = 0.5*DF['TiltX'].to_numpy()					## rad
-			DF['TiltY']  = 0.5*DF['TiltY'].to_numpy()					## rad
+			DF['TiltX']  = TiltScale*DF['TiltX'].to_numpy()	## rad
+			DF['TiltY']  = TiltScale*DF['TiltY'].to_numpy()	## rad
 
+			VOut  = DFRef[self.Temp_Key].to_numpy()
+			dVOut = DF[self.Temp_Key].to_numpy()
+			RT    = VOut/(VIn - VOut)*RS
+			dRT   = abs((1./(VOut - VIn) + VOut/(VOut - VIn)**2))*dVOut*RS
 			if self.MonitorOptions['ConvertToTemperature']:
-				VOut  = DFRef[self.Temp_Key].to_numpy()
-				dVOut = DF[self.Temp_Key].to_numpy()
-				RT    = VOut/(VIn - VOut)*RS
 				T     = 1./(1./T0 + 1./beta*np.log(RT/RT0))
-				dRT   = abs((1./(VOut - VIn) + VOut/(VOut - VIn)**2))*dVOut*RS
 				dT    = dRT/(beta*RT)*T**2
-				DF[self.Temp_Key] = dT
+				DF[self.Temp_Key] = dT ## C
+			else:
+				DF[self.Temp_Key] = dRT*1.E-3 ## kOhm
 		else:
 			## Create new column for background subtracted NTotal
 			DF['NTotal'] = DF['NTotalRaw'].to_numpy() - DF['NTotalBG'].to_numpy()
-			DF['TiltX']  = np.arcsin(0.5*(DF['TiltX'].to_numpy() - 2.5)) ## rad
-			DF['TiltY']  = np.arcsin(0.5*(DF['TiltY'].to_numpy() - 2.5)) ## rad
+			DF['TiltX']  = np.arcsin(TiltScale*(DF['TiltX'].to_numpy() - TiltOffset)) ## rad
+			DF['TiltY']  = np.arcsin(TiltScale*(DF['TiltY'].to_numpy() - TiltOffset)) ## rad
 
 			if self.MonitorOptions['ConvertToTemperature']:
 				VOut = DF[self.Temp_Key].to_numpy()
 				RT   = VOut/(VIn - VOut)*RS
-				DF[self.Temp_Key] = 1./(1./T0 + 1./beta*np.log(RT/RT0)) - 273.15
+				DF[self.Temp_Key] = 1./(1./T0 + 1./beta*np.log(RT/RT0)) - 273.15 ## C
+			else:
+				VOut = DF[self.Temp_Key].to_numpy()
+				DF[self.Temp_Key] = VOut/(VIn - VOut)*RS*1E-3			## kOhm
 
-		DF[self.RamanBX_Key] = 0.5*DF[self.RamanBX_Key].to_numpy()		## Gauss
-		DF[self.RamanBY_Key] = 0.5*DF[self.RamanBY_Key].to_numpy()		## Gauss
-		DF[self.RamanBZ_Key] = 0.5*DF[self.RamanBZ_Key].to_numpy() 		## Gauss
+		DF[self.RamanBX_Key] = BScale*DF[self.RamanBX_Key].to_numpy()	## Gauss
+		DF[self.RamanBY_Key] = BScale*DF[self.RamanBY_Key].to_numpy()	## Gauss
+		DF[self.RamanBZ_Key] = BScale*DF[self.RamanBZ_Key].to_numpy() 	## Gauss
 		## Create new column for total Raman magnetic field
 		DF[self.RamanBT_Key] = np.sqrt(DF[self.RamanBX_Key].to_numpy()**2 + \
 			DF[self.RamanBY_Key].to_numpy()**2 + DF[self.RamanBZ_Key].to_numpy()**2) ## Gauss
 
+		## Create new columns for MOT monitor and MOT total power
+		if self.MOTPMon_Key != 'None':
+			DF['MOTMeanPMon'] = DF[self.MOTPMon_Key].to_numpy()			## V
+		DF['MOTMeanPT'] = np.sqrt(DF[self.MOTPX_Key].to_numpy()**2 + \
+			DF[self.MOTPY_Key].to_numpy()**2 + DF[self.MOTPZ_Key].to_numpy()**2) ## V
+
 		if self.SoftwareVersion >= 3.3:
-			DF['MOTMeanBX'] = 0.5*DF['MOTMeanBX'].to_numpy() 			## Gauss
-			DF['MOTMeanBY'] = 0.5*DF['MOTMeanBY'].to_numpy() 			## Gauss
-			DF['MOTMeanBZ'] = 0.5*DF['MOTMeanBZ'].to_numpy() 			## Gauss
+			DF['MOTMeanBX'] = BScale*DF['MOTMeanBX'].to_numpy() 		## Gauss
+			DF['MOTMeanBY'] = BScale*DF['MOTMeanBY'].to_numpy() 		## Gauss
+			DF['MOTMeanBZ'] = BScale*DF['MOTMeanBZ'].to_numpy() 		## Gauss
 			DF['MOTMeanBT'] = np.sqrt(DF['MOTMeanBX'].to_numpy()**2 + \
 				DF['MOTMeanBY'].to_numpy()**2 + DF['MOTMeanBZ'].to_numpy()**2) ## Gauss
-			DF['RamanDeltaBX'] = 0.5*DF['RamanDeltaBX'].to_numpy() 		## Gauss
-			DF['RamanDeltaBY'] = 0.5*DF['RamanDeltaBY'].to_numpy() 		## Gauss
-			DF['RamanDeltaBZ'] = 0.5*DF['RamanDeltaBZ'].to_numpy() 		## Gauss
+			DF['RamanDeltaBX'] = BScale*DF['RamanDeltaBX'].to_numpy() 	## Gauss
+			DF['RamanDeltaBY'] = BScale*DF['RamanDeltaBY'].to_numpy() 	## Gauss
+			DF['RamanDeltaBZ'] = BScale*DF['RamanDeltaBZ'].to_numpy() 	## Gauss
+
+		if self.SoftwareVersion >= 3.4:
+			if self.MonitorOptions['ConvertToTemperature']:
+				DF['TempLCRX'] = 1./(1./T0 + 1./beta*np.log(DF['TempLCRX'].to_numpy()/(IBias*RT0))) - 273.15 ## C
+				DF['TempLCRY'] = 1./(1./T0 + 1./beta*np.log(DF['TempLCRY'].to_numpy()/(IBias*RT0))) - 273.15 ## C
+				DF['TempLCRZ'] = 1./(1./T0 + 1./beta*np.log(DF['TempLCRZ'].to_numpy()/(IBias*RT0))) - 273.15 ## C
+			else:
+				DF['TempLCRX'] = DF['TempLCRX'].to_numpy()/IBias*1E-3 ## kOhm
+				DF['TempLCRY'] = DF['TempLCRY'].to_numpy()/IBias*1E-3 ## kOhm
+				DF['TempLCRZ'] = DF['TempLCRZ'].to_numpy()/IBias*1E-3 ## kOhm
 
 		return DF
 
@@ -232,14 +285,23 @@ class Monitor(iXC_RunPars.RunParameters):
 
 		self.tMon = np.array((self.MonitorDF['DateTime'] - self.MonitorDF['DateTime'].iloc[0]) // pd.Timedelta('1ms'))*1.E-3
 
-		mpl.rc('font', size=10)
-		mpl.rc('lines', markersize=3)
-		mpl.rc('axes', labelsize=11)
+		if self.tMon[-1] > 10000:
+			self.tMon *= 1.E-3
+			xLabel = r'Time  ($\times 10^3$ s)'
+		else:
+			xLabel = 'Time  (s)'
 
-		(nRows, nCols) = (4, 3)
-		(colW, rowH)   = (4, 2)
-		## returns list axs[row,col]
-		fig, axs = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*colW,nRows*rowH), sharex='col', constrained_layout=True)
+		plt.rc('font', size=10)
+		plt.rc('lines', markersize=3)
+		plt.rc('axes', labelsize=11)
+
+		if self.SoftwareVersion >= 3.4:
+			(nRows, nCols) = (4, 4)
+		else:
+			(nRows, nCols) = (4, 3)
+		(colW, rowH) = (4, 2)
+
+		_, axs = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*colW,nRows*rowH), sharex='col', constrained_layout=True)
 
 		customPlotOpts = {'Color': 'red', 'Linestyle': 'None', 'Marker': '.',
 			'Title': 'None', 'xLabel': 'None', 'yLabel': 'None',
@@ -258,19 +320,31 @@ class Monitor(iXC_RunPars.RunParameters):
 		if self.MonitorOptions['ConvertToTemperature']:
 			customPlotOpts['yLabel'] = 'Temperature  (C)'
 		else:
-			customPlotOpts['yLabel'] = 'Thermistor  (V)'
-		customPlotOpts['Color']    = 'goldenrod'
+			customPlotOpts['yLabel'] = r'Thermistor  (k$\Omega$)'
 
+		customPlotOpts['Color']    = 'goldenrod'
+		customPlotOpts['LegLabel'] = 'Chamber'
+		customPlotOpts['Legend']   = True
 		iXUtils.CustomPlot(axs[2,0], customPlotOpts, self.tMon, self.MonitorDF[self.Temp_Key].to_numpy())
 
-		customPlotOpts['xLabel']   = 'Time  (s)'
+		if self.SoftwareVersion >= 3.4:
+			customPlotOpts['Color']    = 'yellowgreen'
+			customPlotOpts['LegLabel'] = 'LCR X'
+			iXUtils.CustomPlot(axs[2,0], customPlotOpts, self.tMon, self.MonitorDF['TempLCRX'].to_numpy())
+			customPlotOpts['Color']    = 'deepskyblue'
+			customPlotOpts['LegLabel'] = 'LCR Y'
+			iXUtils.CustomPlot(axs[2,0], customPlotOpts, self.tMon, self.MonitorDF['TempLCRY'].to_numpy())
+			customPlotOpts['Color']    = 'indianred'
+			customPlotOpts['LegLabel'] = 'LCR Z'
+			iXUtils.CustomPlot(axs[2,0], customPlotOpts, self.tMon, self.MonitorDF['TempLCRZ'].to_numpy())
+
+		customPlotOpts['xLabel']   = xLabel
 		customPlotOpts['yLabel']   = 'Detection  (V)'
 		customPlotOpts['Color']    = 'chocolate'
 		customPlotOpts['LegLabel'] = 'MOT'
-		customPlotOpts['Legend']   = True
 
 		if self.SoftwareVersion <= 3.2:
-			iXUtils.CustomPlot(axs[3,0], customPlotOpts, self.tMon, self.MonitorDF[self.MOTFluKey].to_numpy())
+			iXUtils.CustomPlot(axs[3,0], customPlotOpts, self.tMon, self.MonitorDF[self.MOTFlu_Key].to_numpy())
 
 		customPlotOpts['Color']    = 'red'
 		customPlotOpts['LegLabel'] = r'$N_{\rm total}$ Raw'
@@ -280,47 +354,91 @@ class Monitor(iXC_RunPars.RunParameters):
 		customPlotOpts['LegLabel'] = r'$N_{\rm total}$ BG'
 		iXUtils.CustomPlot(axs[3,0], customPlotOpts, self.tMon, self.MonitorDF['NTotalBG'].to_numpy())
 
+		customPlotOpts['Color']    = 'black'
+		customPlotOpts['LegLabel'] = r'$N_{\rm total}$'
+		iXUtils.CustomPlot(axs[3,0], customPlotOpts, self.tMon, self.MonitorDF['NTotal'].to_numpy())
+
 		## 2nd column
 		customPlotOpts['xLabel']   = 'None'
-		customPlotOpts['yLabel']   = r'MOT $P_X$  (V)'
+		customPlotOpts['yLabel']   = r'MOT $\langle P_X \rangle$  (V)'
 		customPlotOpts['Color']    = 'forestgreen'
 		customPlotOpts['LegLabel'] = 'None'
 		customPlotOpts['Legend']   = False
 		iXUtils.CustomPlot(axs[0,1], customPlotOpts, self.tMon, self.MonitorDF[self.MOTPX_Key].to_numpy())
 
-		customPlotOpts['yLabel']   = r'MOT $P_Y$  (V)'
+		customPlotOpts['yLabel']   = r'MOT $\langle P_Y \rangle$  (V)'
 		customPlotOpts['Color']    = 'lightseagreen'
 		iXUtils.CustomPlot(axs[1,1], customPlotOpts, self.tMon, self.MonitorDF[self.MOTPY_Key].to_numpy())
 
-		customPlotOpts['yLabel']   = r'MOT $P_Z$  (V)'
+		customPlotOpts['yLabel']   = r'MOT $\langle P_Z \rangle$  (V)'
 		customPlotOpts['Color']    = 'dodgerblue'
 		iXUtils.CustomPlot(axs[2,1], customPlotOpts, self.tMon, self.MonitorDF[self.MOTPZ_Key].to_numpy())
 
-		customPlotOpts['xLabel'] = 'Time  (s)'
-		customPlotOpts['yLabel'] = r'MOT $P_{\rm mon}$  (V)'
-		customPlotOpts['Color']  = 'black'
-		iXUtils.CustomPlot(axs[3,1], customPlotOpts, self.tMon, self.MonitorDF[self.MOTPT_Key].to_numpy())
+		customPlotOpts['xLabel']   = xLabel
+		customPlotOpts['yLabel']   = r'MOT $\langle P_{\rm total} \rangle$  (V)'
+		customPlotOpts['Color']    = 'grey'
+		customPlotOpts['LegLabel'] = 'Monitor'
+		customPlotOpts['Legend']   = True
+		if 'MOTMeanPMon' in self.MonitorDF.columns:
+			iXUtils.CustomPlot(axs[3,1], customPlotOpts, self.tMon, self.MonitorDF['MOTMeanPMon'].to_numpy())
 
-		## 3rd column
+		customPlotOpts['Color']    = 'black'
+		customPlotOpts['LegLabel'] = 'Total'
+		iXUtils.CustomPlot(axs[3,1], customPlotOpts, self.tMon, self.MonitorDF['MOTMeanPT'].to_numpy())
+
+		if self.SoftwareVersion >= 3.4:
+			## 3rd column
+			customPlotOpts['xLabel']   = 'None'
+			customPlotOpts['yLabel']   = r'Raman $\langle P_X \rangle$  (V)'
+			customPlotOpts['Color']    = 'yellowgreen'
+			customPlotOpts['LegLabel'] = 'None'
+			customPlotOpts['Legend']   = False
+			iXUtils.CustomPlot(axs[0,2], customPlotOpts, self.tMon, self.MonitorDF['RamanMeanPX'].to_numpy())
+
+			customPlotOpts['yLabel']   = r'Raman $\langle P_Y \rangle$  (V)'
+			customPlotOpts['Color']    = 'deepskyblue'
+			iXUtils.CustomPlot(axs[1,2], customPlotOpts, self.tMon, self.MonitorDF['RamanMeanPY'].to_numpy())
+
+			customPlotOpts['yLabel']   = r'Raman $\langle P_Z \rangle$  (V)'
+			customPlotOpts['Color']    = 'indianred'
+			iXUtils.CustomPlot(axs[2,2], customPlotOpts, self.tMon, self.MonitorDF['RamanMeanPZ'].to_numpy())
+
+			customPlotOpts['xLabel']   = xLabel
+			customPlotOpts['yLabel']   = r'Raman $\Delta P$  (V)'
+			customPlotOpts['Legend']   = True
+
+			customPlotOpts['LegLabel'] = 'X'
+			customPlotOpts['Color']    = 'olivedrab'
+			iXUtils.CustomPlot(axs[3,2], customPlotOpts, self.tMon, self.MonitorDF['RamanDeltaPX'].to_numpy())
+
+			customPlotOpts['LegLabel'] = 'Y'
+			customPlotOpts['Color']    = 'darkcyan'
+			iXUtils.CustomPlot(axs[3,2], customPlotOpts, self.tMon, self.MonitorDF['RamanDeltaPY'].to_numpy())
+
+			customPlotOpts['LegLabel'] = 'Z'
+			customPlotOpts['Color']    = 'orangered'
+			iXUtils.CustomPlot(axs[3,2], customPlotOpts, self.tMon, self.MonitorDF['RamanDeltaPZ'].to_numpy())
+
+		## Last column
 		customPlotOpts['xLabel']   = 'None'
 		customPlotOpts['yLabel']   = r'Raman $B_X$  (G)'
 		customPlotOpts['Color']    = 'mediumblue'
 		customPlotOpts['LegLabel'] = 'None'
 		customPlotOpts['Legend']   = False
-		iXUtils.CustomPlot(axs[0,2], customPlotOpts, self.tMon, self.MonitorDF[self.RamanBX_Key].to_numpy())
+		iXUtils.CustomPlot(axs[0,nCols-1], customPlotOpts, self.tMon, self.MonitorDF[self.RamanBX_Key].to_numpy())
 
 		customPlotOpts['yLabel']   = r'Raman $B_Y$  (G)'
 		customPlotOpts['Color']    = 'blueviolet'
-		iXUtils.CustomPlot(axs[1,2], customPlotOpts, self.tMon, self.MonitorDF[self.RamanBY_Key].to_numpy())
+		iXUtils.CustomPlot(axs[1,nCols-1], customPlotOpts, self.tMon, self.MonitorDF[self.RamanBY_Key].to_numpy())
 
 		customPlotOpts['yLabel']   = r'Raman $B_Z$  (G)'
 		customPlotOpts['Color']    = 'magenta'
-		iXUtils.CustomPlot(axs[2,2], customPlotOpts, self.tMon, self.MonitorDF[self.RamanBZ_Key].to_numpy())
+		iXUtils.CustomPlot(axs[2,nCols-1], customPlotOpts, self.tMon, self.MonitorDF[self.RamanBZ_Key].to_numpy())
 
-		customPlotOpts['xLabel']   = 'Time  (s)'
+		customPlotOpts['xLabel']   = xLabel
 		customPlotOpts['yLabel']   = r'Raman $B_{\rm total}$  (G)'
 		customPlotOpts['Color']    = 'black'
-		iXUtils.CustomPlot(axs[3,2], customPlotOpts, self.tMon, self.MonitorDF[self.RamanBT_Key].to_numpy())
+		iXUtils.CustomPlot(axs[3,nCols-1], customPlotOpts, self.tMon, self.MonitorDF[self.RamanBT_Key].to_numpy())
 
 		if self.PlotOptions['SavePlot']:
 			if not os.path.exists(self.PlotOptions['PlotFolderPath']):
@@ -352,14 +470,14 @@ class Monitor(iXC_RunPars.RunParameters):
 
 		logging.info('iXC_Monitor::Plotting monitor correlations...')
 
-		mpl.rc('font', size=10)
-		mpl.rc('lines', markersize=3)
-		mpl.rc('axes', labelsize=11)
+		plt.rc('font', size=10)
+		plt.rc('lines', markersize=3)
+		plt.rc('axes', labelsize=11)
 
 		(nRows, nCols) = (4, 3)
 		(colW, rowH)   = (4, 2)
 		## returns list axs[row,col]
-		fig, axs = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*colW,nRows*rowH), sharey='row', constrained_layout=True)
+		_, axs = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*colW,nRows*rowH), sharey='row', constrained_layout=True)
 		axs = [ax for sub in list(map(list, zip(*axs))) for ax in sub]
 
 		customPlotOpts = {'Color': 'red', 'Linestyle': 'None', 'Marker': '.',
@@ -367,15 +485,15 @@ class Monitor(iXC_RunPars.RunParameters):
 			'Legend': False, 'LegLabel': 'None'}
 
 		if self.SoftwareVersion <= 3.2:
-			correlMons = ['TiltX', 'TiltY', 'TempChamber', 'NTotal',
-				'MOTPowerX', 'MOTPowerY', 'MOTPowerZ', 'MOTMonitor', 
+			correlMons = ['TiltX', 'TiltY', self.Temp_Key, 'NTotal',
+				self.MOTPX_Key, self.MOTPY_Key, self.MOTPZ_Key, self.MOTPMon_Key, 
 				'RamanBX', 'RamanBY', 'RamanBZ', 'RamanBT']
 			xLabels = ['Tilt X  (rad)', 'Tilt Y  (rad)', 'Temperature  (C)', r'$N_{\rm total}$  (V)', 
 				r'MOT $P_X$  (V)', r'MOT $P_Y$  (V)', r'MOT $P_Z$  (V)', r'MOT $P_T$  (V)', 
 				r'Raman $B_X$  (G)', r'Raman $B_Y$  (G)', r'Raman $B_Z$  (G)', r'Raman $B_T$  (G)']
 		else:
-			correlMons = ['TiltX', 'TiltY', 'Temperature', 'NTotal', 
-				'MOTMeanPX', 'MOTMeanPY', 'MOTMeanPZ', 'MOTMeanPT', 
+			correlMons = ['TiltX', 'TiltY', self.Temp_Key, 'NTotal', 
+				self.MOTPX_Key, self.MOTPY_Key, self.MOTPZ_Key, self.MOTPMon_Key, 
 				'RamanMeanPX', 'RamanMeanPY', 'RamanMeanPZ', 'RamanDeltaPZ']
 			xLabels = ['Tilt X  (rad)', 'Tilt Y  (rad)', 'Temperature  (C)', r'$N_{\rm total}$  (V)', 
 				r'MOT $P_X$  (V)', r'MOT $P_Y$  (V)', r'MOT $P_Z$  (V)', r'MOT $P_T$  (V)', 
