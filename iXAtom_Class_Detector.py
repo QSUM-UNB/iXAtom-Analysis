@@ -2,18 +2,8 @@
 ## Filename:	iXAtom_Class_Detector.py
 ## Author:		B. Barrett
 ## Description: Detector class definition for iXAtom analysis package
-## Version:		3.2.4
+## Version:		3.2.5
 ## Last Mod:	14/01/2019
-##===================================================================
-## Change Log:
-## 14/10/2019 - Detector class defined and bug tested
-##				(for LabVIEW v3.1 data only)
-## 17/10/2019 - Minor modifications for iXAtom_Main_v3.2 compatibility
-## 29/11/2019 - Separated global plot options into its own dictionary
-##				'PlotOpts' to facilite easy sharing with other classes.
-## 08/01/2020 - Completed overhaul of Detector class to use lmfit module.
-##			  - Implemented recursive initial parameter estimation when
-##				post-processsing of Raman/Ramsey detection data.
 #####################################################################
 
 import copy
@@ -380,7 +370,7 @@ class Detector(iXC_RunPars.RunParameters):
 
 		colors = [['gold','darkorange','indianred'], ['black', 'black', 'black']] ## [data=0,fit=1; id=0,1,2]
 
-		[iN2L, iN2R, iNTL, iNTR, iN2BGL, iN2BGR, iNTBGL, iNTBGR] = self.DetectCursors
+		[iN2L, _, iNTL, _, iN2BGL, _, iNTBGL, _] = self.DetectCursors
 
 		nPoints = len(self.DetectTrace[self.idList[0]])
 		iRatioL = 0

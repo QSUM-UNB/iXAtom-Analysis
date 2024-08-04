@@ -1,0 +1,361 @@
+##=========================================================================
+## Change Log for iXAtom_Main_Analysis.py
+##=========================================================================
+## 11/10/2019 - Object-oriented update of iXAtom analysis v3.1
+## 17/10/2019 - Minor modifications for LabVIEW v3.2 compatibility
+## 19/10/2019 - Added control for combining detector results with
+##				different coefficients.
+##			  - Separated class definitions into separate files.
+## 22/10/2019 - Raman AnalysisLevel = 3: Added this analysis Level for
+##				reloading analysis results and plotting a summary
+## 06/11/2019 - Added Stream class along with its own analysis levels
+## 08/11/2019 - Raman AnalysisLevel = 2: Added run plot overlaying feature
+## 10/11/2019 - Raman AnalysisLevel = 2: Added linear tracking correction
+##				for initial parameter estimates when fitting fringes for
+##				different run variables
+## 11/11/2019 - Raman AnalysisLevel = 2: Added sorting feature for RunList
+##				that performs analysis for run variables in ascending order 
+## 19/11/2019 - Raman AnalysisLevel = 2: Bug fixes to fringe tracking
+##				correction and fitting chirped data with fixed scale factor 
+##			  - Raman AnalysisLevel = 3: Replaced plot of TExp with
+##				fringe scale factor, and added functionality for 
+##				RunPlotVariable = 'RamanpiX', 'RamanpiY', 'RamanpiZ'
+## 25/11/2019 - Implemented a loop over AnalysisLevels
+##			  - Removed 'ConvertChirpToPhase' option. This is now done
+##				anytime ChirpedData = True and the phase parameter is 
+##				stored when Raman AnalysisLevel = 3 is run.
+## 29/11/2019 - Created Ramsey class based on Raman one, performed 
+##				basic bug tests and implemented AnalysisLevels = 0-3.
+##			  - Separated global plot options into its own dictionary
+##				'PlotOpts' to facilite easy sharing with other classes.
+## 02/12/2019 - Created Physics class in 'iXAtom_Class_Physics.py' for
+##				storing useful physical constants and formulas. Now
+##				RunParameters.SetPhysicalConstants() calls the __init__ 
+##				method of this class and creates a local instance.
+## 10/12/2019 - Added computation of tidal gravity anomaly to Physics
+##				class (wrapper for ETGTAB F77 code). Features for overlaying
+##				and subtracting tides from Tracking data were also added.
+## 21/12/2019 - Created iXAtom analysis v3.2.2 to facilitate overhaul of
+##				fitting routines to use the lmfit module.
+## 04/01/2020 - Completed overhaul of Ramsey class to use lmfit module
+##				and built-in models. Now this analysis code supports
+##				fitting to an arbitrary number of peaks using peak-like
+##				models such as Gaussian, Lorentzian, Sinc2, SincB, 
+##				Voigt, Pseudo-Voigt, and Moffat (i.e. Lorentzian-B).
+## 07/01/2020 - Completed overhaul of Raman class to use lmfit module.
+## 08/01/2020 - Completed overhaul of Detector class to use lmfit module.
+##			  - Implemented recursive initial parameter estimation when
+##				post-processsing of Raman/Ramsey detection data.
+## 14/01/2020 - Implemented Raman phase and offset noise estimation based
+##				on an optimization of the log-likelihood distribution.
+##			  - Added method to RunParameters to get run timing parameters
+##				from timestamps recorded in the raw data files.
+##			  - Added 'BadRuns' to AnalysisCtrl to facilitate removal
+##				of bad runs from 'RunList'.
+## 16/01/2020 - Implemented Raman analysis level 4 for performing a time
+##				series analysis of level 3 results.
+## 28/01/2020 - Fixed bug in error estimate of post-processed atomic ratio.
+## 30/01/2020 - Added Monitor class for storing, merging and manipulating
+##				monitor data.
+## 03/02/2020 - Implemented Analysis Level 5 in Raman and Ramsey classes
+##				for correlating Analysis Level 3 results with monitor data. 
+##			  - Fixed bug when trying to read RunTime attribute from
+##				post-processed data.
+##            - Created Rabi class based on Ramsey class. Basic plotting
+##				functionality only.
+## 14/02/2020 - Modified PlotTrackingData method for LabVIEW software
+##				version 3.3. This version involved changes to the type
+##				of data saved in the ratio files (phase correction
+##				replaced with error signal integral), and the rate at
+##				which the error signal was updated (increased x 2).
+##			  - LabVIEW software version 3.3 also incorporated major
+##				changes to the monitor data types, which need to be
+##				integrated into the Monitor class.
+## 22/02/2020 - Improved robustness of Raman fitting function to avoid
+##				zero-contrast results.
+## 23/02/2020 - Implemented working fit function for Rabi class
+##				(valid for pulse-duration-type Rabi oscillations only).
+##			  - Completed methods for Rabi Analysis Levels 2 and 3.
+## 31/03/2020 - Fixed bug in calculation of Allan deviation errors in iXUtils
+##			  - Updated TimeSeriesAnalysis method with more options for
+##				plotting time series, PSD, and ADev. 
+## 04/04/2020 - Upgraded Raman AnalysisLevel3 to be handle runs with different
+##				sets of Raman axes more intelligently.
+## 24/04/2020 - Upgraded Raman noise estimation methods to estimate
+##				fringe contrast noise in addition to phase and offset noise.
+## 30/05/2020 - Implemented 'ConvertToBField' option in RamseyAnalysisLevel3
+## 03/07/2020 - Added capability to analyze N2, NTotal and Ratio data in Rabi
+##				analysis. In the future, this feature could be made a general
+##				option for all analysis types.
+## 03/09/2020 - Created v2.3.4 to accomodate updates to systematics class.
+## 23/07/2020 - Minor upgrades to Tracking class methods.
+## 29/07/2020 - Added mathematical constraint functionality to Ramsey fits
+## 29/08/2020 - Minor modifications to support LabVIEW software upgrade to v3.4.
+## 09/05/2020 - Added MA and QA model parameters and a control for correcting
+##				acceleration biases and misalignments in Tracking data.
+## 02/10/2020 - Added model function 'Raman' to Ramsey class for fitting
+##				co-propagating Raman spectra to the theoretical lineshape.
+## 13/10/2020 - Updated options for time series analysis in Stream class.
+## 15/10/2020 - Updated methods in Monitor class for LabVIEW software v3.4.
+## 19/10/2020 - Implemented option for plotting monitor data recorded during
+##			 	Tracking acquisition (AnalysisLevel = 0)
+##			  - Bug fixes to calculation of accel norm phase in Tracking class. 
+## 20/10/2020 - Created iXAtom Analysis v3.2.5 to facilitate he following features
+##				----- PENDING -----
+##				Ramsey/Raman/Rabi classes:
+##			  - Include orientation of sensor head in data analysis
+##				Tracking class:
+##			  - Writing/reading of tracking analysis to/from summary files
+##			  - Synchronization of monitor data with tracking data
+##			  - Plot correlations between monitor and tracking data for each axis
+## 14/11/2020 - Updated code with pylint: minor bug fixes, removed unused variables
+## 22/11/2020 - Moved all change logs from each class definition to this file.
+
+
+##=========================================================================
+## Change Log for iXAtom_Main_Systematics.py
+##=========================================================================
+## 22/11/2020 - Created file for main entry point for Systematics class
+##            - Implemented 'SysOpts' dictionary for control of parameters and outputs
+##			  - Implemented loop over Raman axes
+##			  - TO DO: implement control for outputing results to file  
+
+
+##=========================================================================
+## Change Log for iXAtom_Class_Detector.py
+##=========================================================================
+## 14/10/2019 - Detector class defined and bug tested
+##				(for LabVIEW v3.1 data only)
+## 17/10/2019 - Minor modifications for iXAtom_Main_v3.2 compatibility
+## 29/11/2019 - Separated global plot options into its own dictionary
+##				'PlotOpts' to facilite easy sharing with other classes.
+## 08/01/2020 - Completed overhaul of Detector class to use lmfit module.
+##			  - Implemented recursive initial parameter estimation when
+##				post-processsing of Raman/Ramsey detection data.
+
+
+##=========================================================================
+## Change Log for iXAtom_Class_Monitor.py
+##=========================================================================
+## 30/01/2020 - Monitor class created. Initialization, data loading,
+##				conversion and plotting methods created based on 
+##				existing methods in Tracking class.
+## 03/02/2020 - Added MonitorOpts input dictionary.
+## 15/10/2020 - Upgraded __init__ and PlotMonitorData methods to support
+##				new variables (RamanMeanPXYZ, RamanDeltaPXYZ, TempLCRXYZ)
+##				These were added to the Monitor tab in LabVIEW between
+##				software versions 3.3 and 3.4.
+
+
+##=========================================================================
+## Change Log for iXAtom_Class_Physics.py
+##===================================================================
+## 02/12/2019 - Physics class defined.
+##			  - Physical constants set during __init__ module.
+##			  - Modules for magnetic field models defined and tested.
+## 10/12/2019 - Added computation of tidal gravity anomaly (wrapper
+##				for ETGTAB F77 code).
+## 20/04/2020 - Moved systematics class to a dedicated file
+##            - Updated __init__ method to include more physical
+##				constants and spectral properties of 87Rb
+## 09/07/2020 - Created new version (v3.2.4) to accomodate upgrades to
+##				systematics class
+## 17/11/2020 - Added orientation-dependent parameters: thetaX, thetaZ,
+##				OmegaLocal, aLocal, Tii, etc.
+
+
+##=========================================================================
+## Change Log for iXAtom_Class_Rabi.py
+##=========================================================================
+## 03/02/2020 - Rabi class defined based on Rabi class. Basic plotting
+##				functionality only.
+## 23/02/2020 - Implemented working fit function for Rabi class
+##				(valid for pulse-duration-type Rabi oscillations only).
+##			  - Completed methods for Rabi Analysis Levels 2 and 3.
+## 03/07/2020 - Added capability to analyze N2, NTotal and Ratio data in Rabi
+##				analysis. In the future, this feature could be made a general
+##				option for all analysis types.
+
+
+##=========================================================================
+## Change Log for iXAtom_Class_Raman.py
+##=========================================================================
+## 14/10/2019 - Raman class defined and bug tested
+##				(for LabVIEW v3.1 data only)
+## 17/10/2019 - Minor modifications for v3.2 compatibility
+## 19/10/2019 - Added control for combining detector results with
+##				different coefficients
+## 22/10/2019 - Added RamanAnalysisLevel1(), RamanAnalysisLevel2(),
+##				and RamanAnalysisLevel3() utility methods for
+##				AnalysisLevels = 1, 2, 3
+## 25/11/2019 - Added functionality for ProcessLevel = 1 within
+##				AnalysisLevel = 3
+## 29/11/2019 - Separated global plot options from RamanOpts to its own
+##				dictionary 'PlotOpts' to facilite easy sharing with
+##				other classes (e.g. Ramsey)
+## 30/11/2019 - Minor modifications and bug fixes
+## 07/01/2020 - Completed overhaul of Raman class to use lmfit module.
+##			    This allows simple and versatile control of fitting
+##				options including setting bounds, fixing parameters,
+##				robust estimation of confidence intervals, etc.
+## 14/01/2020 - Implemented Raman phase and offset noise estimation based
+##				on an optimization of the log-likelihood distribution
+##				using the Minimizer method of the lmfit module.
+## 31/01/2020 - Implemented method RamanAnalysisLevel5 for correlating
+##				analysis level = 3 results with monitor data.
+## 22/02/2020 - Improved robustness of Raman fitting function to avoid
+##				zero-contrast results.
+## 01/04/2020 - Implemented improved TimeSeriesAnalysis method from iXUtils. 
+## 04/04/2020 - Upgraded Raman AnalysisLevel3 to be handle runs with different
+##				sets of Raman axes more intelligently.
+## 24/04/2020 - Modified NegLogLikelihood and EstimateRamanNoise methods
+##				to include estimation of contrast noise in addtion to phase
+##				and offset noise. The minimization results seem a bit more
+##				reliable when all noise sources are included.
+
+
+##=========================================================================
+## Change Log for iXAtom_Class_Ramsey.py
+##=========================================================================
+## 29/11/2019 - Ramsey class defined based on Raman class.
+##			  - Basic bug testing of AnalysisLevels = 0-3.
+## 			  - Separated global plot options into its own dictionary
+##				'PlotOpts' to facilite easy sharing with other classes.
+## 30/11/2019 - Minor modifications and bug fixes
+## 04/01/2020 - Completed overhaul of Ramsey class to use lmfit module
+##				and built-in models. Now this analysis code supports
+##				fitting to an arbitrary number of peaks using peak-like
+##				models such as Gaussian, Lorentzian, Sinc2, SincB, 
+##				Voigt, Pseudo-Voigt, and Moffat (i.e. Lorentzian-B).
+## 03/02/2020 - Implemented method RamseyAnalysisLevel5 for correlating
+##				analysis level = 3 results with monitor data.
+## 30/05/2020 - Implemented 'ConvertToBField' option in RamseyAnalysisLevel3
+## 29/07/2020 - Added parameter constraint functionality to Ramsey fits by passing
+##				all initial parameter properties ('min', 'max', 'vary', 'expr')
+##				to the lmfit.model.set_param_hint() method.
+## 02/10/2020 - Added model function 'Raman' for fitting co-propagating Raman
+##				spectra to the theoretical lineshape. This function returns
+##				the Rabi frequency as a fit parameter, and uses the Raman pulse
+##				duration recorded in the Parameter file.
+## 17/11/2020 - Implemented orientation-dependent acceleration 'aLocal' for 
+##              the calculation of 3D position.
+##            - Added a third row to Ramsey plots in AnalysisLevel3 to include cloud
+##              position as independent variable when RunPlotVariable == 'RamanTOF'
+##            - Added 'FitPositionData' flag to RamseyOpts and implemented linear
+##              fits to position-dependent data in AnalysisLevel3. So far, this
+##              is only implemented for magnetic field analysis with co-prop spectra.
+
+
+##=========================================================================
+## Change Log for iXAtom_Class_RunParameters.py
+##=========================================================================
+## 12/10/2019 - RunParameters class defined and bug tested
+##				(for LabVIEW v3.1 data only)
+## 14/10/2019 - Detector class defined and bug tested
+## 17/10/2019 - Minor modifications for iXAtom_Main compatibility
+## 25/11/2019 - Changed 'SoftwareVersion' instance variable type from
+##				string to float to make version casing simpler
+## 07/01/2020 - Added method 'CreatePlotAxes' to facilitate creating
+##				individual or Run-overlayed plots in Raman/Ramsey
+##				AnalysisLevel = 2.
+## 14/01/2020 - Added method to RunParameters get run timing parameters
+##				from timestamps recorded in the raw data files.
+## 29/08/2020 - Added lists RamankUFreq, RamankDFreq, RamankUChirp, and
+##				RamankDChirp as attributes to RunParameters to accomodate
+##				upgrade to LabVIEW software version v3.4.
+## 20/11/2020 - Added orientation-dependent parameter 'aLocal' to attributes
+
+
+##=========================================================================
+## Change Log for iXAtom_Class_Stream.py
+##=========================================================================
+## 06/11/2019 - Stream class defined. Moved stream methods from old
+##				Track class.
+## 13/10/2020 - Updated time range selection in LoadAccelStream method
+##			  - Updated plot options for time series analysis in 
+##				PlotAccelStream method.
+
+
+##=========================================================================
+## Change Log for iXAtom_Class_Systematics.py
+##=========================================================================
+## 19/01/2020 - Systematics class defined				
+##            - Adding methods for computing systematic effects on
+##				atom interferometers due to the one-photon light shift,
+##				two-photon light shift, and the magnetic gradient shift.
+## 20/04/2020 - Moved systematics class to a dedicated file.
+## 03/09/2020 - Created new version (v2.3.4) for general updates to
+##				systematics class.
+##			  - Added calculations of phase shifts due to Parasitic lines
+##				(phase modulator case), wavefront distortion (simple case)
+##				and Mach-Zehnder Asymmetry. The latter should be checked against
+##				the sensitivity function approx of ONERA.
+##			  - Updated calculation of TPLS. The phase uncertainty of the exact
+##				formula still needs to be checked.
+##			  - Updated plotting function based on ICE systematics class (v1.1)
+##				This still needs to be debugged when using variables other
+##				than TOF and T.
+## 12/11/2020 - Updated method 'TwoPhotonLightShift': contributions from Delta mF=2
+##				Rabi frequencies are included through a fixed ratio instead of 
+##				being entered manually in the SysPars dictionary since they are
+##				small and difficult to measure. The expression for dpTPLS was also
+##				re-written in a simpler form using previously computed quantities.
+## 16/11/2020 - Added method 'ScaleFactorShift' to compute the shift due to errors
+##				in the interferometer scale factor.
+## 17/11/2020 - Implemented orientation-dependent parameters from Physics class,
+##				which account for fixed tilts of the sensor head.
+## 21/11/2020 - Added method 'ParasiticLinesShift_IQMod' for computing the shift
+##				due to parasitic lines in the IQ modulator, and renamed 
+##				'ParasiticLinesShift' to 'ParasiticLinesShift_PhaseMod' for the
+##				phase modulator case.
+## 22/11/2020 - Major overhaul of systematics class to facilitate control from 
+##				main entry point: 'iXAtom_Main_Systematics.py'
+##			  - Improved modularity by creating dedicated methods for calculating,
+##				printing, and plotting systematics.
+##			  - Now one can select a subset of systematics to compute using the 
+##				'SysList' keyword in the 'SysOpts' dictionary.
+## 23/11/2020 - Created method 'RamanFreqShifts' to compute the expected shifts
+##				of the Raman resonance for each axis during the interferometer
+
+
+##=========================================================================
+## Change Log for iXAtom_Class_Track.py
+##=========================================================================
+## 22/10/2019 - Track class defined and bug tested
+##				(for LabVIEW v3.1 data only)
+## 06/11/2019 - Created stream class, and moved over related methods
+##				in order to broaden the scope it stream data usage to
+##				all classes
+## 10/12/2019 - Added features for overlaying and subtracting tides.
+## 14/02/2019 - Modified PlotTrackingData method for LabVIEW software
+##				version 3.3. This version involved changes to the type
+##				of data saved in the ratio files (phase correction
+##				replaced with error signal integral), and the rate at
+##				which the error signal was updated (increased x 2).
+## 01/07/2020 - Added method for printing Tracking statistics
+## 03/07/2020 - Minor mods and bug fixes to PlotPhaseData method
+## 23/07/2020 - Modified PlotPhaseData method to be compatible with older
+##				data sets. Also added acceleration plot unit, ADev fit
+##				controls in the TrackingOptions dictionary, and re-implemented
+##				moving average functionality.
+## 09/05/2020 - Added MA and QA model parameters and a control for correcting
+##				acceleration biases and misalignments in Tracking data.
+
+
+##=========================================================================
+## Change Log for iXAtom_Utilities.py
+##=========================================================================
+## 13/10/2019 - File created. Ported methods from older version.
+## 16/01/2020 - Modified AnalyzeTimeSeries method to handle multiple
+##				datasets on each time series plot, and added some
+##				additional options.
+## 31/03/2020 - Fixed bug in calculation of Allan deviation errors
+##			  - Added new method 'ComputeADevError' for calculation
+##				of confidence intervals and uncertainties for various
+##				types of Allan deviations ('Overlapped' and 'Total' for now).
+## 			  - Added options to 'TimeSeriesAnalysis' for plotting
+##				different Allan deviations, changing the display format
+##				for data and uncertainties, and fitting the ADev data.
+##			  - Updated TimeSeriesAnalysis method with more options for
+##				plotting time series, PSD, and ADev. 
+## 25/08/2021 - Modified method "AnalyzeTimeSeries" to return PSD and ADev data

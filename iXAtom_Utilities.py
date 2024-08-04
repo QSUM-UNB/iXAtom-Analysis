@@ -4,23 +4,9 @@
 ## Description: Utilities for iXAtom analysis package, including:
 ##            - Dataframe custom export methods
 ##            - Mathplotlib custom plotting methods
-## Version:     3.2.4
-## Last Mod:    31/03/2020
-##===================================================================
-## Change Log:
-## 13/10/2019 - File created. Ported methods from older version.
-## 16/01/2020 - Modified AnalyzeTimeSeries method to handle multiple
-##				datasets on each time series plot, and added some
-##				additional options.
-## 31/03/2020 - Fixed bug in calculation of Allan deviation errors
-##			  - Added new method 'ComputeADevError' for calculation
-##				of confidence intervals and uncertainties for various
-##				types of Allan deviations ('Overlapped' and 'Total' for now).
-## 			  - Added options to 'TimeSeriesAnalysis' for plotting
-##				different Allan deviations, changing the display format
-##				for data and uncertainties, and fitting the ADev data.
-##			  - Updated TimeSeriesAnalysis method with more options for
-##				plotting time series, PSD, and ADev. 
+##			  - General times series analysis
+## Version:     3.2.5
+## Last Mod:    25/08/2021
 #####################################################################
 
 import logging
@@ -48,7 +34,7 @@ def WriteDataFrameToFile(DataFrame, FolderPath, FilePath, ShowHeaders, ShowIndic
 	\t ShowIndices (bool) - Flag for writing indices to file
 	\t Format      (str)  - Float format
 	\t Columns     (list) - Subset of columns to write to file.
-							The order of columns in this list be preserved in the file.
+							The order of the columns in this list is preserved in the file.
 	"""
 
 	if not os.path.exists(FolderPath):
@@ -71,7 +57,7 @@ def SetDefaultPlotOptions():
 
 def CustomPlot(Ax, PlotOpts, xData, yData, yErr=[], LogScale=[False,False], MaxRelErr=2.):
 
-	if len(yErr) > 0 and abs(np.dot(yErr, 1./yData)) <= MaxRelErr*len(yData):
+	if len(yErr) > 0 and np.mean(yErr)/np.mean(abs(yData)) <= MaxRelErr:
 		hideErrs = False
 	else:
 		hideErrs = True
@@ -200,7 +186,7 @@ def AllanDev(yList, taus='all', rate=1., ADevType='Total', tauMax=0.4, ComputeEr
 	ADevErr = ADevErr[:ntau]
 
 	if ComputeErr:
-		(ADevCIL, ADevCIU, ADevErrL, ADevErrU) = ComputeADevErrors(N, ntau, rate, tau, ADev, ADevErr, ADevType)
+		ADevErrL, ADevErrU = ComputeADevErrors(N, ntau, rate, tau, ADev, ADevErr, ADevType)[:2]
 		return (tau, ADev, ADevErrL, ADevErrU)
 	else:
 		return (tau, ADev, ADevErr, ADevErr)
@@ -219,19 +205,19 @@ def ComputeADevErrors(N, ntau, rate, tau, ADev, ADevErr, ADevType='Total', Model
 	ADevErr  (np.array) - One-sided uncertainty output by allantools
 	ADevType      (str) - Type of Allan deviation
 	ModelType     (str) - Type of model to use to compute uncertainty
-	RETURN FORMAT: (ADevCIL, ADevCIU, ADevErrL, ADevErrU)
-	ADevCIL  (np.array) - Lower bound of ADev confidence interval
-	ADevCIU  (np.array) - Upper bound of ADev confidence interval
+	RETURN FORMAT: (ADevErrL, ADevErrU, ADevCIL, ADevCIU)
 	ADevErrL (np.array) - Lower bound of ADev uncertainty
 	ADevErrU (np.array) - Upper bound of ADev uncertainty
+	ADevCIL  (np.array) - Lower bound of ADev confidence interval
+	ADevCIU  (np.array) - Upper bound of ADev confidence interval
 	"""
 
 	if ModelType == 'chi2':
 		## Compute Allan deviation confidence intervals based on chi2-distribution
-		ADevCIL  = np.zeros(ntau)
-		ADevCIU  = np.zeros(ntau)
 		ADevErrL = np.zeros(ntau)
 		ADevErrU = np.zeros(ntau)
+		ADevCIL  = np.zeros(ntau)
+		ADevCIU  = np.zeros(ntau)
 
 		for i in range(ntau):
 			## Averaging factor tau = m*tau0 = m/rate
@@ -257,7 +243,7 @@ def ComputeADevErrors(N, ntau, rate, tau, ADev, ADevErr, ADevType='Total', Model
 		ADevCIL  = ADev - ADevErr
 		ADevCIU  = ADev + ADevErr
 
-	return (ADevCIL, ADevCIU, ADevErrL, ADevErrU)
+	return (ADevErrL, ADevErrU, ADevCIL, ADevCIU)
 
 ################### End of ComputeADevErrors() ######################
 #####################################################################
@@ -335,7 +321,8 @@ def AnalyzeTimeSeries(tRange, yData, yErr, Options):
 		'ADev_Fit_SetRange'	(list)  - List of flags for setting independent fit x-ranges,
 		'ADev_Fit_Range'	(list)  - List of fit x-ranges,
 		'ADev_Fit_FixExp'	(list)  - List of flags for fixing the exponent 'alpha' in ADev fits
-	RETURN FORMAT: None
+	RETURN FORMAT: 
+	    [t, f, PSD, tau, ADev, ADevErrL, ADevErrU]
 	"""
 
 	logging.info('iXUtils::Analyzing time series data...')
@@ -343,8 +330,15 @@ def AnalyzeTimeSeries(tRange, yData, yErr, Options):
 	plt.rc('legend', fontsize=Options['LegendFontSize'], handletextpad=0.3)
 	plt.rc('lines', linewidth=Options['Linewidth'], markersize=Options['Markersize'])
 
-	nRows  = len(yData)
-	nSamps = len(yData[0][0])
+	nRows    = len(yData)
+	nSamps   = len(yData[0][0])
+
+	f        = np.empty(nRows, dtype=object)
+	PSD      = np.empty(nRows, dtype=object)
+	tau      = np.empty(nRows, dtype=object)
+	ADev     = np.empty(nRows, dtype=object)
+	ADevErrL = np.empty(nRows, dtype=object)
+	ADevErrU = np.empty(nRows, dtype=object)
 
 	if Options['ADev_Plot'] and Options['PSD_Plot']:
 		## Plot time series + ADev + PSD
@@ -377,17 +371,7 @@ def AnalyzeTimeSeries(tRange, yData, yErr, Options):
 	elif Options['ADev_Plot'] or Options['PSD_Plot']:
 		axs.append(fig.add_subplot(gs[:, 1])) # Right column spans all rows
 
-	[tStart, tStop, tStep] = tRange
-
-	if round((tStop - tStart)/tStep) == nSamps:
-		endPoint = False
-	elif round((tStop - tStart)/tStep) + 1 == nSamps:
-		endPoint = True
-	else:
-		logging.warning('iXUtils::AnalyzeTimeSeries::Length of yData ({}) does not match expected length ({}) from tRange...'.format(nSamps, round((tStop-tStart)/tStep)+1))
-		endPoint = True
-
-	tData = np.linspace(tStart, tStop, num=nSamps, endpoint=endPoint)
+	t = np.linspace(tRange[0], tRange[1], num=nSamps, endpoint=True)
 
 	## Default plot options
 	PlotOpts = {'Color': 'red', 'Linestyle': Options['Linestyle'], 'Marker': Options['Marker'],
@@ -401,9 +385,20 @@ def AnalyzeTimeSeries(tRange, yData, yErr, Options):
 			PlotOpts['yLabel']   = Options['yLabels'][r]
 			PlotOpts['LegLabel'] = Options['LegendLabels'][r][j]
 
-			CustomPlot(axs[r], PlotOpts, tData, Options['yScales'][r][j]*yData[r][j])
-			if Options['ShowErrors']:
-				axs[r].fill_between(tData, Options['yScales'][r][j]*(yData[r][j] - yErr[r][j]), Options['yScales'][r][j]*(yData[r][j] + yErr[r][j]), alpha=0.4, color=Options['Colors'][r][j])
+			tSub = t.copy()
+ 			## Ensures length of x & y are the same
+			nSamps_rj = len(yData[r][j])
+			if nSamps_rj != nSamps:
+				logging.warning('iXUtils::AnalyzeTimeSeries::Length of yData[{}][{}] ({}) does not match length of t ({})...'.format(r, j, nSamps_rj, nSamps))
+				if nSamps_rj < nSamps:
+					tSub = t[:nSamps+1]
+				elif nSamps_rj > nSamps:
+					yData[r][j] = yData[r][j][:nSamps+1]
+					yErr[r][j]  = yErr[r][j][:nSamps+1]
+				
+			CustomPlot(axs[r], PlotOpts, tSub, Options['yScales'][r][j]*yData[r][j])
+			if Options['ShowErrors'] and np.linalg.norm(yErr[r][j]) > 0:
+				axs[r].fill_between(tSub, Options['yScales'][r][j]*(yData[r][j] - yErr[r][j]), Options['yScales'][r][j]*(yData[r][j] + yErr[r][j]), alpha=0.4, color=Options['Colors'][r][j])
 
 		## Remove axis labels, but keep ticks, for all but last row
 		plt.setp(axs[r].get_xticklabels(), visible=False if r < nRows-1 else True)
@@ -421,16 +416,16 @@ def AnalyzeTimeSeries(tRange, yData, yErr, Options):
 					PlotOpts['LegLabel'] = Options['LegendLabels'][r][j]
 
 					if Options['PSD_Method'] == 'welch':
-						fData, psdData = welch(yData[r][j], fs=Options['SampleRate'], return_onesided=True, scaling='density')
-						fData = fData[:-1]
-						psdData = psdData[:-1]
+						f[r], PSD[r] = welch(yData[r][j], fs=Options['SampleRate'], return_onesided=True, scaling='density')
+						f[r]   = f[r][:-1]
+						PSD[r] = PSD[r][:-1]
 					else:
-						fData, psdData = periodogram(yData[r][j], fs=Options['SampleRate'], return_onesided=True, scaling='density')
-						fData = fData[1:-1]
-						psdData = psdData[1:-1]
+						f[r], PSD[r] = periodogram(yData[r][j], fs=Options['SampleRate'], return_onesided=True, scaling='density')
+						f[r]   = f[r][1:-1]
+						PSD[r] = PSD[r][1:-1]
 
-					psdData = np.sqrt(psdData)
-					CustomPlot(axs[rPSD], PlotOpts, fData, psdData, [], logScale)
+					PSD[r] = np.sqrt(PSD[r])
+					CustomPlot(axs[rPSD], PlotOpts, f[r], PSD[r], [], logScale)
 
 	if Options['ADev_Plot']:
 		plt.rc('lines', linewidth=1.5)
@@ -449,35 +444,35 @@ def AnalyzeTimeSeries(tRange, yData, yErr, Options):
 					PlotOpts['eColor']    = Options['Colors'][r][j]
 					PlotOpts['LegLabel']  = Options['LegendLabels'][r][j]
 
-					(tau, ADev, ADevErrL, ADevErrU) = AllanDev(yData[r][j], taus=Options['ADev_taus'], rate=Options['SampleRate'], 
+					(tau[r], ADev[r], ADevErrL[r], ADevErrU[r]) = AllanDev(yData[r][j], taus=Options['ADev_taus'], rate=Options['SampleRate'], 
 							ADevType=Options['ADev_Type'], ComputeErr=Options['ADev_ShowErrors'])
 
 					if Options['ADev_ShowErrors']:
 						if Options['ADev_Errorstyle'] == 'Bar':
-							CustomPlot(axs[rADev], PlotOpts, tau, ADev, yErr=np.array([ADevErrL, ADevErrU]), LogScale=logScale)
+							CustomPlot(axs[rADev], PlotOpts, tau[r], ADev[r], yErr=np.array([ADevErrL[r], ADevErrU[r]]), LogScale=logScale)
 						else:
-							CustomPlot(axs[rADev], PlotOpts, tau, ADev, yErr=[], LogScale=logScale)
-							axs[rADev].fill_between(tau, ADev - ADevErrL, ADev + ADevErrU, color=PlotOpts['Color'], alpha=0.3)
+							CustomPlot(axs[rADev], PlotOpts, tau[r], ADev[r], yErr=[], LogScale=logScale)
+							axs[rADev].fill_between(tau[r], ADev[r] - ADevErrL[r], ADev[r] + ADevErrU[r], color=PlotOpts['Color'], alpha=0.3)
 					else:
-						CustomPlot(axs[rADev], PlotOpts, tau, ADev, yErr=[], LogScale=logScale)
+						CustomPlot(axs[rADev], PlotOpts, tau[r], ADev[r], yErr=[], LogScale=logScale)
 
 					if Options['ADev_Fit'][r][j]:
 						if Options['ADev_Fit_SetRange'][r][j]:
 							xFit  = np.array([])
 							yFit  = np.array([])
 							dyFit = np.array([])
-							for ix in range(len(tau)):
-								if tau[ix] > Options['ADev_Fit_Range'][r][j][0] and tau[ix] < Options['ADev_Fit_Range'][r][j][1]:
-									xFit  = np.append(xFit, tau[ix])
-									yFit  = np.append(yFit, ADev[ix])
-									dyFit = np.append(dyFit, 0.5*(ADevErrL[ix] + ADevErrU[ix]))
+							for ix in range(len(tau[r])):
+								if tau[r][ix] > Options['ADev_Fit_Range'][r][j][0] and tau[r][ix] < Options['ADev_Fit_Range'][r][j][1]:
+									xFit  = np.append(xFit, tau[r][ix])
+									yFit  = np.append(yFit, ADev[r][ix])
+									dyFit = np.append(dyFit, 0.5*(ADevErrL[r][ix] + ADevErrU[r][ix]))
 						else:
-							xFit  = tau.copy()
-							yFit  = ADev.copy()
-							dyFit = 0.5*(ADevErrL + ADevErrU)
+							xFit  = tau[r].copy()
+							yFit  = ADev[r].copy()
+							dyFit = 0.5*(ADevErrL[r] + ADevErrU[r])
 
 						logx, logdy = np.log10(xFit), dyFit/(np.log(10)*yFit)
-						if Options['ADev_Fit_FixExp'][r][j]:
+						if not Options['ADev_Fit_FixExp'][r][j]:
 							logy = np.log10(yFit)
 							pOpt, pCov = np.polyfit(logx, logy, 1, w=1/logdy, full=False, cov=True)
 							pErr = np.sqrt(np.diag(pCov))
@@ -570,6 +565,8 @@ def AnalyzeTimeSeries(tRange, yData, yErr, Options):
 		logging.info('iXUtils::  {}'.format(plotPath))
 	else:
 		plt.show()
+
+	return [t, f, PSD, tau, ADev, ADevErrL, ADevErrU]
 
 #################### End of AnalyzeTimeSeries() #####################
 #####################################################################

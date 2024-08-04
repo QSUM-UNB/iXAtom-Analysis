@@ -2,42 +2,8 @@
 ## Filename:	iXAtom_Class_Raman.py
 ## Author:		B. Barrett
 ## Description: Raman class definition for iXAtom analysis package
-## Version:		3.2.4
+## Version:		3.2.5
 ## Last Mod:	24/04/2020
-##===================================================================
-## Change Log:
-## 14/10/2019 - Raman class defined and bug tested
-##				(for LabVIEW v3.1 data only)
-## 17/10/2019 - Minor modifications for v3.2 compatibility
-## 19/10/2019 - Added control for combining detector results with
-##				different coefficients
-## 22/10/2019 - Added RamanAnalysisLevel1(), RamanAnalysisLevel2(),
-##				and RamanAnalysisLevel3() utility methods for
-##				AnalysisLevels = 1, 2, 3
-## 25/11/2019 - Added functionality for ProcessLevel = 1 within
-##				AnalysisLevel = 3
-## 29/11/2019 - Separated global plot options from RamanOpts to its own
-##				dictionary 'PlotOpts' to facilite easy sharing with
-##				other classes (e.g. Ramsey)
-## 30/11/2019 - Minor modifications and bug fixes
-## 07/01/2020 - Completed overhaul of Raman class to use lmfit module.
-##			    This allows simple and versatile control of fitting
-##				options including setting bounds, fixing parameters,
-##				robust estimation of confidence intervals, etc.
-## 14/01/2020 - Implemented Raman phase and offset noise estimation based
-##				on an optimization of the log-likelihood distribution
-##				using the Minimizer method of the lmfit module.
-## 31/01/2020 - Implemented method RamanAnalysisLevel5 for correlating
-##				analysis level = 3 results with monitor data.
-## 22/02/2020 - Improved robustness of Raman fitting function to avoid
-##				zero-contrast results.
-## 01/04/2020 - Implemented improved TimeSeriesAnalysis method from iXUtils. 
-## 04/04/2020 - Upgraded Raman AnalysisLevel3 to be handle runs with different
-##				sets of Raman axes more intelligently.
-## 24/04/2020 - Modified NegLogLikelihood and EstimateRamanNoise methods
-##				to include estimation of contrast noise in addtion to phase
-##				and offset noise. The minimization results seem a bit more
-##				reliable when all noise sources are included.
 #####################################################################
 
 import copy
@@ -105,14 +71,14 @@ class Raman(iXC_RunPars.RunParameters):
 		self.Fit_method    = 'lm' ## 'lm': Levenberg-Marquardt, 'trf': Trust Region Reflective, 'dogbox': dogleg algorithm with rectangular trust regions
 		self.Fit_ftol      = 1.E-6
 		self.Fit_xtol      = 1.E-6
-		self.Fit_maxfev    = 2000
+		self.Fit_max_nfev  = 2000
 
-		self.Min_method     = 'nelder'
-		self.Min_tol        = 1.E-5
-		self.Min_xatol      = 1.E-5
-		self.Min_fatol      = 1.E-5
-		self.Min_maxfev     = 10000
-		self.Min_maxiter	= 10000
+		self.Min_method    = 'nelder'
+		self.Min_tol       = 1.E-5
+		self.Min_xatol     = 1.E-5
+		self.Min_fatol     = 1.E-5
+		self.Min_maxiter   = 10000
+		self.Min_max_nfev  = 10000
 
 		self.PlotPath  	   = os.path.join(self.PlotOptions['PlotFolderPath'], 'Raman-Run{:02d}-RawData-Fit.'.format(self.Run) + self.PlotOptions['PlotExtension'])
 
@@ -238,11 +204,11 @@ class Raman(iXC_RunPars.RunParameters):
 		else:
 			weights = np.ones(len(yErr))
 
-		fit_kws  = {'xtol': self.Fit_xtol, 'ftol': self.Fit_ftol, 'maxfev': self.Fit_maxfev} 
+		fit_kws  = {'xtol': self.Fit_xtol, 'ftol': self.Fit_ftol} 
 
 		iFit = 1
 		while iFit <= 3:
-			ResultLS = self.FitModel.fit(yData, self.FitPars, x=xData, weights=weights, method='leastsq', fit_kws=fit_kws)
+			ResultLS = self.FitModel.fit(yData, self.FitPars, x=xData, weights=weights, method='leastsq', max_nfev=self.Fit_max_nfev, fit_kws=fit_kws)
 			iFit += 1
 
 			## Note that ResultLS.residual is divided by the errors
@@ -290,7 +256,7 @@ class Raman(iXC_RunPars.RunParameters):
 
 	@staticmethod
 	def NegLogLikelihood(Pars, x, y):
-		"""Define the negative log-likelihood for the fit model, including phase and offset noise."""
+		"""Define the negative log-likelihood for the fit model, including phase, contrast and offset noise."""
 
 		p = Pars.valuesdict()
 
@@ -314,11 +280,11 @@ class Raman(iXC_RunPars.RunParameters):
 		logging.info('ICE_Raman::Estimating Raman noise parameters...')
 
 		x0  = ResultFit.params['xOffset'].value
-		dx0 = ResultFit.params['xOffset'].stderr
+		# dx0 = ResultFit.params['xOffset'].stderr
 		y0  = ResultFit.params['yOffset'].value
-		dy0 = ResultFit.params['yOffset'].stderr
+		# dy0 = ResultFit.params['yOffset'].stderr
 		c   = ResultFit.params['Contrast'].value
-		dc  = ResultFit.params['Contrast'].stderr
+		# dc  = ResultFit.params['Contrast'].stderr
 		s   = ResultFit.params['xScale'].value
 
 		if self.ChirpedData:
@@ -331,12 +297,12 @@ class Raman(iXC_RunPars.RunParameters):
 			lm.Parameter('phi0',     value=x0, vary=False),
 			lm.Parameter('yOffset',  value=y0, vary=False),
 			lm.Parameter('Contrast', value=c,  vary=False),
-			lm.Parameter('log_sigX', value=np.log(1.E-1), max=np.log(1.), min=np.log(1.E-4)),
-			lm.Parameter('log_sigY', value=np.log(1.E-2), max=np.log(1.), min=np.log(1.E-5)),
-			lm.Parameter('log_sigC', value=np.log(1.E-3), max=np.log(1.), min=np.log(1.E-6)))
+			lm.Parameter('log_sigX', value=np.log(1.E-1), max=np.log(1.), min=np.log(1.E-5)),
+			lm.Parameter('log_sigY', value=np.log(5.E-3), max=np.log(1.), min=np.log(1.E-5)),
+			lm.Parameter('log_sigC', value=np.log(5.E-3), max=np.log(1.), min=np.log(1.E-5)))
 
-		min_kws     = {'tol': self.Min_tol, 'options': {'xatol': self.Min_xatol, 'fatol': self.Min_fatol, 'maxfev': self.Min_maxfev, 'maxiter': self.Min_maxiter}}
-		ResultNoise = lm.minimize(self.NegLogLikelihood, pInit, method=self.Min_method, args=(xData, yData), nan_policy='omit', **min_kws)
+		min_kws     = {'tol': self.Min_tol, 'options': {'xatol': self.Min_xatol, 'fatol': self.Min_fatol, 'maxiter': self.Min_maxiter}}
+		ResultNoise = lm.minimize(self.NegLogLikelihood, pInit, method=self.Min_method, args=(xData, yData), nan_policy='omit', max_nfev=self.Min_max_nfev, **min_kws)
 
 		logging.info('iXC_Raman::{} (nfev = {}, redchi = {:5.3E})'.format(ResultNoise.message, ResultNoise.nfev, ResultNoise.redchi))
 
@@ -422,12 +388,15 @@ class Raman(iXC_RunPars.RunParameters):
 
 		C   = ResultLS.params['Contrast'].value
 		dC  = ResultLS.params['Contrast'].stderr
-		# if type(dC) is not float:
-		# 	dC = 0.
+		if type(dC) is not float:
+			dC = 0.
 
 		SNR = lm.Parameter('SNR', value=C/resdev)
 		SNR.init_value = 0.
-		SNR.stderr = np.sqrt((dC/C)**2 + (resdev.stderr/resdev.value)**2)*SNR.value
+		if type(resdev.stderr) is float:
+			SNR.stderr = np.sqrt((dC/C)**2 + (resdev.stderr/resdev.value)**2)*SNR.value
+		else:
+			SNR.stderr = 0.
 
 		if self.ChirpedData:
 			alpha0_init     = ResultLS.params['xOffset'].init_value
@@ -444,17 +413,34 @@ class Raman(iXC_RunPars.RunParameters):
 			gExp.init_value	= 2*np.pi*abs(alpha0_init)/self.keff
 			gExp.stderr	    = 2*np.pi*dalpha0/self.keff
 		else:
-			phig            = self.Seff[iax]*self.gLocal
-			n2pi            = np.floor(phig/(2.*np.pi))
-			phi0_best		= ResultLS.params['xOffset'].value % (self.kSign[iax][ik]*2.*np.pi) + self.kSign[iax][ik]*n2pi*(2.*np.pi)
-			phi0            = lm.Parameter('phi0', value=phi0_best)
-			phi0.init_value = ResultLS.params['xOffset'].init_value
-			phi0.stderr     = ResultLS.params['xOffset'].stderr
+			if self.RamanScanMode == 'Phase kInterlaced Fixed Chirp':
+				phi0_best       = ResultLS.params['xOffset'].value + 2.*np.pi*self.kSign[iax][ik]*abs(self.kUpChirpRate)*self.Teff[iax]**2
+				phi0            = lm.Parameter('phi0', value=phi0_best)
+				phi0.init_value = ResultLS.params['xOffset'].init_value + 2.*np.pi*self.kSign[iax][ik]*abs(self.kUpChirpRate)*self.Teff[iax]**2
+				if type(ResultLS.params['xOffset'].stderr) is float:
+					phi0.stderr = ResultLS.params['xOffset'].stderr
+				else:
+					phi0.stderr = 0.
 
-			gExp_best       = phi0_best/(self.kSign[iax][ik]*self.Seff[iax])
-			gExp            = lm.Parameter('gExp', value=gExp_best)
-			gExp.init_value	= (phi0.init_value % (self.kSign[iax][ik]*2.*np.pi) + self.kSign[iax][ik]*n2pi*(2.*np.pi))/(self.kSign[iax][ik]*self.Seff[iax])
-			gExp.stderr	    = phi0.stderr/self.Seff[iax]
+				gExp_best       = phi0.value/(self.kSign[iax][ik]*self.Seff[iax])
+				gExp            = lm.Parameter('gExp', value=gExp_best)
+				gExp.init_value	= phi0.init_value/(self.kSign[iax][ik]*self.Seff[iax])
+				gExp.stderr	    = phi0.stderr/self.Seff[iax]
+			else:
+				phig            = self.Seff[iax]*self.gLocal
+				n2pi            = np.floor(phig/(2.*np.pi))
+				phi0_best		= ResultLS.params['xOffset'].value % (self.kSign[iax][ik]*2.*np.pi) + self.kSign[iax][ik]*n2pi*(2.*np.pi)
+				phi0            = lm.Parameter('phi0', value=phi0_best)
+				phi0.init_value = ResultLS.params['xOffset'].init_value
+				if type(ResultLS.params['xOffset'].stderr) is float:
+					phi0.stderr = ResultLS.params['xOffset'].stderr
+				else:
+					phi0.stderr = 0.
+
+				gExp_best       = phi0_best/(self.kSign[iax][ik]*self.Seff[iax])
+				gExp            = lm.Parameter('gExp', value=gExp_best)
+				gExp.init_value	= (phi0.init_value % (self.kSign[iax][ik]*2.*np.pi) + self.kSign[iax][ik]*n2pi*(2.*np.pi))/(self.kSign[iax][ik]*self.Seff[iax])
+				gExp.stderr	    = phi0.stderr/self.Seff[iax]
 
 		sigX = lm.Parameter('sigX', value=np.exp(ResultML.params['log_sigX']))
 		sigX.init_value = np.exp(ResultML.params['log_sigX'].init_value)
@@ -505,10 +491,8 @@ class Raman(iXC_RunPars.RunParameters):
 
 		if self.RawData:
 			label = 'raw'
-			dfList = self.RawDataDF
 		else:
 			label = 'post-processed'
-			dfList = self.PostDataDF
 
 		logging.info('iXC_Raman::Analyzing {} Raman data for {}...'.format(label, self.RunString))
 
@@ -583,6 +567,7 @@ class Raman(iXC_RunPars.RunParameters):
 			if self.PlotOptions['OverlayRunPlots']:
 				nColors = len(self.RamanOptions['RunPlotColors'])
 				CustomPlotOpts['Color'] = self.RamanOptions['RunPlotColors'][iRun%(nColors)][ik]
+				# if self.PlotOptions['ShowPlotLegend']:
 				if self.RamanOptions['RunPlotVariable'] == 'RamanT':
 					CustomPlotOpts['LegLabel'] = self.AxisLegLabels[iax][ik] + ', {:5.2f} ms'.format(self.RamanT*1.E+3)
 				elif self.RamanOptions['RunPlotVariable'] == 'Run':
@@ -592,9 +577,14 @@ class Raman(iXC_RunPars.RunParameters):
 					CustomPlotOpts['LegLabel'] = self.AxisLegLabels[iax][ik] + ', {}'.format(runTimeStamp)
 				else:
 					CustomPlotOpts['LegLabel'] = self.AxisLegLabels[iax][ik] + ', {:5.2e}'.format(getattr(self, self.RamanOptions['RunPlotVariable']))
+				# else:
+				# 	CustomPlotOpts['LegLabel'] = None
 			else:
 				CustomPlotOpts['Color']    = self.DefaultPlotColors[iax][ik]
+				# if self.PlotOptions['ShowPlotLegend']:
 				CustomPlotOpts['LegLabel'] = self.AxisLegLabels[iax][ik]
+				# else:
+				# 	CustomPlotOpts['LegLabel'] = None
 
 			CustomPlotOpts['Linestyle'] = 'None'
 			CustomPlotOpts['Marker']    = '.'
@@ -668,10 +658,8 @@ class Raman(iXC_RunPars.RunParameters):
 
 		if self.RawData:
 			label = 'raw'
-			dfList = self.RawDataDF
 		else:
 			label = 'post-processed'
-			dfList = self.PostDataDF
 
 		logging.info('iXC_Raman::Plotting {} Raman data for {}...'.format(label, self.RunString))
 
@@ -941,13 +929,14 @@ class Raman(iXC_RunPars.RunParameters):
 
 				if self.PlotOptions['OverlayRunPlots']:
 					self.PlotOptions['ShowPlotTitle']  = False
-					self.PlotOptions['ShowPlotLegend'] = True
+					# self.PlotOptions['ShowPlotLegend'] = True
 					if iRun < nRuns-1:
 						self.PlotOptions['ShowPlot'] = False
 						self.PlotOptions['SavePlot'] = False
 					else:
 						self.PlotOptions['ShowPlot'] = PlotOpts['ShowPlot']
 						self.PlotOptions['SavePlot'] = PlotOpts['SavePlot']
+				self.PlotOptions['ShowPlotLegend'] = PlotOpts['ShowPlotLegend']
 
 				self.PlotRamanData(RamanAxs[0], iRun)
 
@@ -961,17 +950,18 @@ class Raman(iXC_RunPars.RunParameters):
 				self.PlotOptions['ShowPlotLabels'] = [True, True]
 				if self.PlotOptions['OverlayRunPlots']:
 					self.PlotOptions['ShowPlotTitle']  = False
-					self.PlotOptions['ShowPlotLegend'] = False
+					# self.PlotOptions['ShowPlotLegend'] = True
 				else:
 					self.PlotOptions['ShowPlotTitle']  = PlotOpts['ShowPlotTitle']
-					self.PlotOptions['ShowPlotLegend'] = PlotOpts['ShowPlotLegend']
+				self.PlotOptions['ShowPlotLegend'] = PlotOpts['ShowPlotLegend']
+
 				self.PlotRamanData(RamanAxs[0], iRun)
 
 				self.RawData = False
 				self.PlotOptions['ShowPlotLabels'] = [True, False]
 				if self.PlotOptions['OverlayRunPlots']:
 					self.PlotOptions['ShowPlotLabels'] = [True, False]
-					self.PlotOptions['ShowPlotLegend'] = True
+					# self.PlotOptions['ShowPlotLegend'] = True
 					if iRun < nRuns-1:
 						self.PlotOptions['ShowPlot'] = False
 						self.PlotOptions['SavePlot'] = False
@@ -1053,6 +1043,10 @@ def RamanAnalysisLevel2(AnalysisCtrl, RamanOpts, PlotOpts):
 
 			runVarList[iRun] = getattr(Ram, runVarKey)
 
+		if runVarKey == 'TiltX' or runVarKey == 'TiltZ':
+			## Transform tilts into -180 to +180 deg range
+			runVarList = np.arcsin(np.sin(runVarList*np.pi/180.))*180./np.pi
+
 		## Sort run variables and run list
 		orderList  = np.argsort(runVarList)
 		runVarList = runVarList[orderList]
@@ -1124,7 +1118,7 @@ def RamanAnalysisLevel3(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 	WorkDir   = AnalysisCtrl['WorkDir']
 	Folder    = AnalysisCtrl['Folder']
 	RunList   = AnalysisCtrl['RunList']
-	nRuns  	  = len(RunList)
+	# nRuns  	  = len(RunList)
 
 	iaxSet    = set()
 	ikSet     = set()
@@ -1185,7 +1179,7 @@ def RamanAnalysisLevel3(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 		(nRows, nCols) = (3,3)
 	else:
 		(nRows, nCols) = (2,3)
-	fig, axs = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*4.5,nRows*2.), sharex='col', constrained_layout=True)
+	_, axs = plt.subplots(nrows=nRows, ncols=nCols, figsize=(nCols*4.5,nRows*2.), sharex='col', constrained_layout=True)
 
 	if PlotOpts['PlotData']:
 		if RamanOpts['RunPlotVariable'] == 'RamanT':
@@ -1204,6 +1198,18 @@ def RamanAnalysisLevel3(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 			## Special operations for RamanPower
 			xScale = 1.
 			xLabel = r'$P_{\rm Raman}$  (V)'
+		elif RamanOpts['RunPlotVariable'] == 'deltaDiff':
+			## Special operations for RamanPower
+			xScale = 1.E-3/(2.*np.pi)
+			xLabel = r'$\Delta \delta$  (kHz)'
+		elif RamanOpts['RunPlotVariable'] == 'TiltX':
+			## Special operations for TiltX
+			xScale = 1.
+			xLabel = r'$\theta_x$  (deg)'
+		elif RamanOpts['RunPlotVariable'] == 'TiltZ':
+			## Special operations for TiltZ
+			xScale = 1.
+			xLabel = r'$\theta_z$  (deg)'
 		elif RamanOpts['RunPlotVariable'] == 'RunTime':
 			t0     = SummaryDF[list(iaxSet)[0]][list(ikSet)[0]]['RunTime'].iloc[0]
 			dt0    = dt.datetime.fromtimestamp(t0, tz=pytz.timezone('Europe/Paris'))
@@ -1219,6 +1225,9 @@ def RamanAnalysisLevel3(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 					x   = SummaryDF[iax][ik][RamanOpts['RunPlotVariable']].to_numpy()*xScale
 					if RamanOpts['RunPlotVariable'] == 'RunTime':
 						x -= t0*xScale
+					elif RamanOpts['RunPlotVariable'] == 'TiltX' or 'TiltZ':
+						# x = np.array([(x[i] if x[i] <= 180. else x[i]-360.) for i in range(len(x))])
+						x = np.arcsin(np.sin(x*np.pi/180.))*180./np.pi
 					Seff  = SummaryDF[iax][ik]['Seff'].to_numpy()
 					x0    = SummaryDF[iax][ik]['xOffset'].to_numpy()
 					dx0   = SummaryDF[iax][ik]['xOffset_Err'].to_numpy()
@@ -1269,9 +1278,13 @@ def RamanAnalysisLevel3(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 
 						customPlotOpts['Title']  = 'None'
 					else:
-						## Assumes all data are not chirped
-						customPlotOpts['yLabel'] = r'$\phi_0 - S_{\rm eff} g$  (rad)'
-						iXUtils.CustomPlot(axs[0][2], customPlotOpts, x, phi0 - Seff*Ram.gLocal, yErr=dphi0)
+						if Ram.RamanScanMode == 'Phase kInterlaced Fixed Chirp':
+							customPlotOpts['yLabel'] = r'$\phi_0$  (rad)'
+							iXUtils.CustomPlot(axs[0][2], customPlotOpts, x, x0, yErr=dx0)
+						else:
+							## Raman scan mode = 'Phase kInterlaced', 'Phase kUp' or 'Phase kDown'
+							customPlotOpts['yLabel'] = r'$\phi_0 - S_{\rm eff} g$  (rad)'
+							iXUtils.CustomPlot(axs[0][2], customPlotOpts, x, phi0 - Seff*Ram.gLocal, yErr=dphi0)
 
 					if nRows == 2:
 						customPlotOpts['xLabel'] = xLabel
@@ -1407,9 +1420,8 @@ def RamanAnalysisLevel4(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 	WorkDir = AnalysisCtrl['WorkDir']
 	Folder  = AnalysisCtrl['Folder']
 	RunList = AnalysisCtrl['RunList']
-
 	RunNum  = RunList[0]
-	nRuns  	= len(RunList)
+	# nRuns  	= len(RunList)
 
 	## Load first run to extract basic parameters
 	Ram = Raman(WorkDir, Folder, RunNum, RamanOpts, PlotOpts, False, RunPars.__dict__.items())
@@ -1472,7 +1484,7 @@ def RamanAnalysisLevel4(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 
 				ADev_Subsets      = [[True, True], [True], [True, True, False]]
 				ADev_Fit          = [[RamanOpts['ADev_Fit'], RamanOpts['ADev_Fit']], [RamanOpts['ADev_Fit']], [RamanOpts['ADev_Fit'], RamanOpts['ADev_Fit'], False]]
-				ADev_Fit_FitExp   = [[True, True], [True], [True, True, False]]
+				ADev_Fit_FixExp   = [[False, False], [False], [False, False, False]]
 				ADev_Fit_SetRange = [[False, False], [False], [False, False, False]]
 				ADev_Fit_Range    = [[[1.5E2, 2.E3], [1.5E2, 2.E3]], [[1.5E2, 2.E3]], [[1.5E2, 2.E3], [1.5E2, 2.E3], [1.5E2, 2.E3]]]
 			else:
@@ -1499,7 +1511,7 @@ def RamanAnalysisLevel4(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 
 				ADev_Subsets      = [[True, True, False]]
 				ADev_Fit          = [[RamanOpts['ADev_Fit'], RamanOpts['ADev_Fit'], False]]
-				ADev_Fit_FitExp   = [[False, False, False]]
+				ADev_Fit_FixExp   = [[False, False, False]]
 				ADev_Fit_SetRange = [[False, False, False]]
 				ADev_Fit_Range    = [[[1.5E2, 2.E3], [1.5E2, 2.E3], [1.5E2, 2.E3]]]
 
@@ -1533,7 +1545,7 @@ def RamanAnalysisLevel4(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 
 				ADev_Subsets      = [[True, True], [True, True]]
 				ADev_Fit          = [[RamanOpts['ADev_Fit'], RamanOpts['ADev_Fit']], [RamanOpts['ADev_Fit'], RamanOpts['ADev_Fit']]]
-				ADev_Fit_FitExp   = [[True, True], [True, True]]
+				ADev_Fit_FixExp   = [[False, False], [False, False]]
 				ADev_Fit_SetRange = [[False, False], [False, False]]
 				ADev_Fit_Range    = [[[1.5E2, 2.E3], [1.5E2, 2.E3]], [[1.5E2, 2.E3], [1.5E2, 2.E3]]]
 			else:
@@ -1548,7 +1560,7 @@ def RamanAnalysisLevel4(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 				yData   = [[pk]]
 				yErr    = [[dak]]
 				yScales = [[1.E6]]
-				colors  = [[Ram.DefaultPlotColors[iax][ik]]]
+				colors  = [[Ram.DefaultPlotColors[iax][0]]]
 				xLabels = [xLabel]
 				yLabels = [r'$\phi_{\!\uparrow}$  (rad)' if Ram.ikList[0] == 0 else r'$\phi_{\!\downarrow}$  (rad)', 
 					r'$\sqrt{\rm PSD}$  (rad$/\sqrt{\rm Hz}$)', r'Allan Deviation  (rad)']
@@ -1556,7 +1568,7 @@ def RamanAnalysisLevel4(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 
 				ADev_Subsets      = [[True]]
 				ADev_Fit          = [[RamanOpts['ADev_Fit']]]
-				ADev_Fit_FitExp   = [[False]]
+				ADev_Fit_FixExp   = [[False]]
 				ADev_Fit_SetRange = [[False]]
 				ADev_Fit_Range    = [[[1.5E2, 2.E3]]]
 
@@ -1602,7 +1614,7 @@ def RamanAnalysisLevel4(AnalysisCtrl, RamanOpts, PlotOpts, RunPars):
 			'ADev_Fit_XLimits'	: [0.9*tRange[2], 1.1*(0.4*tRange[1])],
 			'ADev_Fit_SetRange'	: ADev_Fit_SetRange,
 			'ADev_Fit_Range'	: ADev_Fit_Range,
-			'ADev_Fit_FixExp'	: ADev_Fit_FitExp
+			'ADev_Fit_FixExp'	: ADev_Fit_FixExp
 			}
 
 		iXUtils.AnalyzeTimeSeries(tRange, yData, yErr, Options)
@@ -1626,7 +1638,7 @@ def RamanAnalysisLevel5(AnalysisCtrl, RamanOpts, MonitorOpts, PlotOpts, RunPars)
 	RunList = AnalysisCtrl['RunList']
 
 	RunNum  = RunList[0]
-	nRuns  	= len(RunList)
+	# nRuns  	= len(RunList)
 
 	## Load first run to extract basic parameters
 	Ram = Raman(WorkDir, Folder, RunNum, RamanOpts, PlotOpts, False, RunPars.__dict__.items())
@@ -1643,11 +1655,11 @@ def RamanAnalysisLevel5(AnalysisCtrl, RamanOpts, MonitorOpts, PlotOpts, RunPars)
 		tStop  = SummaryDF[iax][Ram.ikList[-1]]['RunTime'].iloc[-1]
 		tStep  = (tStop - tStart)/(nData-1)
 
-		t0     = dt.datetime.fromtimestamp(tStart, tz=pytz.timezone('Europe/Paris'))
-		xLabel = 'Run Time - {}  (s)'.format(t0.strftime('%H:%M:%S'))
+		# t0     = dt.datetime.fromtimestamp(tStart, tz=pytz.timezone('Europe/Paris'))
+		# xLabel = 'Run Time - {}  (s)'.format(t0.strftime('%H:%M:%S'))
 
-		tRange = np.array([0., tStop - tStart, tStep])
-		tData  = np.linspace(tStart, tStop, num=nData, endpoint=True)
+		# tRange = np.array([0., tStop - tStart, tStep])
+		# tData  = np.linspace(tStart, tStop, num=nData, endpoint=True)
 
 		if Ram.kInterlaced:
 			if RamanOpts['ComputeMovingAvg']:
