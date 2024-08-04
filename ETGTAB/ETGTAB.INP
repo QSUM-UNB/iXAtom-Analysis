@@ -5,8 +5,8 @@ Gravity in m/s**2:                           9.806
 Azimuth in degree clockwise from north:      0.000
 Earth tide component (-1...9):                   0
 Printout of tidal potential (0...2):             0
-Initial epoch(YYMMDDHH):                      2020   02   29   01
-Number of hours:                                57
+Initial epoch(YYMMDDHH):                      2020   08   28   16
+Number of hours:                                10
 Time interval in secs:                         300
 Tidal potential (0...3):                         2
 Tides for a rigid Earth (IRIGID=1):              0
